@@ -29,61 +29,100 @@ SCRIPTS_DIR = PLUGIN_DIR.parent / "scripts"
 sys.path.insert(0, str(PLUGIN_DIR))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+IS_WINDOWS = sys.platform == "win32"
+
+
+def venv_bin_dir():
+    """Venv executable directory: Scripts on Windows, bin elsewhere."""
+    return VENV_DIR / ("Scripts" if IS_WINDOWS else "bin")
+
+
+def venv_python_path():
+    """Resolve the venv's Python executable across platforms."""
+    bin_dir = venv_bin_dir()
+    candidates = [
+        bin_dir / ("python.exe" if IS_WINDOWS else "python3"),
+        bin_dir / ("python.exe" if IS_WINDOWS else "python"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def venv_site_packages():
+    """Venv site-packages dir: Lib/site-packages on Windows, lib/pythonX.Y/site-packages elsewhere."""
+    if IS_WINDOWS:
+        return VENV_DIR / "Lib" / "site-packages"
+    py_dir = "python{}.{}".format(sys.version_info[0], sys.version_info[1])
+    return VENV_DIR / "lib" / py_dir / "site-packages"
+
 
 def ensure_venv():
     if not VENV_DIR.exists():
         print(f"创建虚拟环境: {VENV_DIR}", file=sys.stderr)
         subprocess.check_call([sys.executable, "-m", "venv", str(VENV_DIR)])
-        print(f"虚拟环境创建完成", file=sys.stderr)
-    
-    bin_dir = VENV_DIR / ("Scripts" if sys.platform == "win32" else "bin")
-    venv_python = bin_dir / "python3"
-    if not venv_python.exists():
-        venv_python = bin_dir / "python"
-    
-    if not venv_python.exists():
-        print(f"错误: 虚拟环境 Python 不存在: {venv_python}", file=sys.stderr)
+        print("虚拟环境创建完成", file=sys.stderr)
+
+    venv_python = venv_python_path()
+    if venv_python is None:
+        print(f"错误: 虚拟环境 Python 不存在: {venv_bin_dir()}", file=sys.stderr)
         sys.exit(1)
-    
+
     in_venv = sys.prefix != sys.base_prefix
-    
+
     print(f"sys.prefix: {sys.prefix}", file=sys.stderr)
     print(f"sys.base_prefix: {sys.base_prefix}", file=sys.stderr)
     print(f"in_venv: {in_venv}", file=sys.stderr)
-    
+
     if not in_venv:
-        print(f"切换到虚拟环境: {venv_python}", file=sys.stderr)
-        os.execv(str(venv_python), [str(venv_python), __file__])
+        if IS_WINDOWS:
+            # os.execv does not replace the running process on Windows — it
+            # spawns a child while the parent keeps running, which severs the
+            # stdio pipes the MCP host uses to talk to this server. Stay in the
+            # same process and put the venv's site-packages first on sys.path so
+            # imports (and the pip install below) resolve into the venv.
+            sp = venv_site_packages()
+            if sp.exists() and str(sp) not in sys.path:
+                sys.path.insert(0, str(sp))
+            print(f"使用虚拟环境 site-packages: {sp}", file=sys.stderr)
+        else:
+            print(f"切换到虚拟环境: {venv_python}", file=sys.stderr)
+            os.execv(str(venv_python), [str(venv_python), __file__])
+
+    return str(venv_python)
 
 
-def check_and_install_dependencies():
+def check_and_install_dependencies(venv_python):
     required_packages = {
         "mcp": "mcp>=1.0.0",
         "yaml": "pyyaml>=6.0",
     }
-    
+
     missing_packages = []
-    
+
     for module_name, package_spec in required_packages.items():
         try:
             __import__(module_name)
         except ImportError:
             missing_packages.append(package_spec)
-    
+
     if missing_packages:
         print(f"正在安装缺失的依赖: {', '.join(missing_packages)}", file=sys.stderr)
         try:
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install"] + missing_packages
+                [venv_python, "-m", "pip", "install"] + missing_packages
             )
             print("依赖安装完成", file=sys.stderr)
+            import importlib
+            importlib.invalidate_caches()
         except subprocess.CalledProcessError as e:
             print(f"依赖安装失败: {e}", file=sys.stderr)
             sys.exit(1)
 
 
-ensure_venv()
-check_and_install_dependencies()
+_venv_python = ensure_venv()
+check_and_install_dependencies(_venv_python)
 
 import asyncio
 import json

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Cross-platform launcher for the 4-fire MCP server (macOS / Linux).
+#
+# Only job: resolve a Python 3 interpreter and run mcp_server.py. The server
+# itself handles virtualenv creation, dependency installation, and (on Windows)
+# in-process venv activation — see mcp_server.py for details.
+#
+# Used as the `command` in .claude-plugin/plugin.json so the plugin does not
+# hard-code `python3` (which is missing on many Windows installs).
+
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        exec "$candidate" "$DIR/mcp_server.py" "$@"
+    fi
+done
+
+echo "4-fire: Python 3 interpreter not found (tried python3, python)." >&2
+exit 1

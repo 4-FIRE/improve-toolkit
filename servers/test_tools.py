@@ -45,20 +45,31 @@ if __name__ == "__main__":
         print(f"Creating venv: {VENV_DIR}", file=sys.stderr)
         subprocess.check_call([sys.executable, "-m", "venv", str(VENV_DIR)])
 
-    bin_dir = VENV_DIR / ("Scripts" if sys.platform == "win32" else "bin")
-    venv_python = bin_dir / "python3"
+    IS_WINDOWS = sys.platform == "win32"
+    bin_dir = VENV_DIR / ("Scripts" if IS_WINDOWS else "bin")
+    venv_python = bin_dir / ("python.exe" if IS_WINDOWS else "python3")
     if not venv_python.exists():
-        venv_python = bin_dir / "python"
+        venv_python = bin_dir / ("python.exe" if IS_WINDOWS else "python")
 
     if not venv_python.exists():
-        print(f"Error: venv python not found: {venv_python}", file=sys.stderr)
+        print(f"Error: venv python not found: {bin_dir}", file=sys.stderr)
         shutil.rmtree(_TEST_DIR, ignore_errors=True)
         sys.exit(1)
 
     in_venv = sys.prefix != sys.base_prefix
     if not in_venv:
-        print(f"Switching to venv: {venv_python}", file=sys.stderr)
-        os.execv(str(venv_python), [str(venv_python), __file__])
+        if IS_WINDOWS:
+            # os.execv does not replace the running process on Windows — it
+            # spawns a child while the parent keeps running, which would orphan
+            # the test process. Stay in-process and put the venv's
+            # site-packages first on sys.path so imports resolve into the venv.
+            sp = VENV_DIR / "Lib" / "site-packages"
+            if sp.exists() and str(sp) not in sys.path:
+                sys.path.insert(0, str(sp))
+            print(f"Using venv site-packages: {sp}", file=sys.stderr)
+        else:
+            print(f"Switching to venv: {venv_python}", file=sys.stderr)
+            os.execv(str(venv_python), [str(venv_python), __file__])
 
     # Now we're in venv - check dependencies
     required = {"mcp": "mcp>=1.0.0", "yaml": "pyyaml>=6.0"}
@@ -71,7 +82,11 @@ if __name__ == "__main__":
 
     if missing:
         print(f"Installing: {', '.join(missing)}", file=sys.stderr)
-        subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing)
+        # Install into the venv's Python (on the Windows in-process path,
+        # sys.executable is still the system interpreter, so use venv_python).
+        subprocess.check_call([str(venv_python), "-m", "pip", "install"] + missing)
+        import importlib
+        importlib.invalidate_caches()
 
 # Add paths after venv setup
 sys.path.insert(0, str(PLUGIN_DIR))
