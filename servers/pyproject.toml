@@ -1,0 +1,17 @@
+[project]
+name = "4-fire"
+version = "0.1.0"
+description = "MCP server for 4-fire tools (memory and skill management)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+4-fire = "mcp_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

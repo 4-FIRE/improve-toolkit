@@ -1,0 +1,29 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "improve-toolkit",
+  "description": "让 Claude Code 持续进化的插件：通过 4-fire MCP 工具（持久记忆、技能管理、会话搜索）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。",
+  "owner": {
+    "name": "qiyan",
+    "email": "yhb3420@qq.com"
+  },
+  "metadata": {
+    "description": "让 Claude Code 持续进化的插件：通过 4-fire MCP 工具（持久记忆、技能管理、会话搜索）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。"
+  },
+  "plugins": [
+    {
+      "name": "improve-toolkit",
+      "source": "./",
+      "description": "让 Claude Code 持续进化的插件：通过 4-fire MCP 工具（持久记忆、技能管理、会话搜索）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。",
+      "version": "1.0.0",
+      "author": {
+        "name": "qiyan",
+        "email": "yhb3420@qq.com"
+      },
+      "homepage": "https://github.com/4-FIRE/improve-toolkit",
+      "repository": "https://github.com/4-FIRE/improve-toolkit",
+      "license": "MIT",
+      "category": "workflow",
+      "strict": false
+    }
+  ]
+}
