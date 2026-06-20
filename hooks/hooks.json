@@ -6,15 +6,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/workflow_reminder.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook workflow_reminder.py"
           },
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/load_memory.py 2>/dev/null || echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"\"}}'"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook load_memory.py"
           },
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/hook_session_start.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook hook_session_start.py"
           }
         ]
       }
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/hook_session_end.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook hook_session_end.py"
           }
         ]
       }
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/hook_user_prompt.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook hook_user_prompt.py"
           }
         ]
       }
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/hook_stop.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook hook_stop.py"
           }
         ]
       }

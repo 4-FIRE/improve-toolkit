@@ -11,6 +11,8 @@ Based on MemoryStore from memory_tool.py:
 
 import json
 import os
+import sys
+import traceback
 from pathlib import Path
 
 ENTRY_DELIMITER = "\n§\n"
@@ -96,5 +98,21 @@ def main():
     print(json.dumps(output, ensure_ascii=False))
 
 
+def _empty_output() -> str:
+    """Emit a valid (empty) SessionStart payload, used if main() fails."""
+    return json.dumps(
+        {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}},
+        ensure_ascii=False,
+    )
+
+
 if __name__ == "__main__":
-    main()
+    # Self-safe: a hook crash must still return valid SessionStart JSON so the
+    # session can start. This replaces the POSIX-only `2>/dev/null || echo`
+    # shell fallback that previously lived in hooks.json (which doesn't
+    # translate to Windows cmd).
+    try:
+        main()
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+        print(_empty_output())

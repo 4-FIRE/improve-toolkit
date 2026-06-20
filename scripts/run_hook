@@ -1,0 +1,23 @@
+#!/bin/sh
+# Cross-platform hook launcher (macOS / Linux).
+#
+# Resolves a Python 3 interpreter and runs a hook script from scripts/.
+# Used by hooks/hooks.json so hooks do not hard-code `python3` (absent on many
+# Windows installs). Usage:  run_hook <script.py> [args...]
+#
+# The hook scripts use only the standard library, so any Python 3 will do — no
+# virtualenv is needed here (unlike servers/launch_mcp, which boots the MCP
+# server with its deps).
+
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script="$1"
+shift
+
+for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        exec "$candidate" "$DIR/$script" "$@"
+    fi
+done
+
+echo "4-fire hook: Python 3 interpreter not found (tried python3, python)." >&2
+exit 1
