@@ -44,6 +44,38 @@ def test_workbench_dir_created_and_path_in_context():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def test_no_legacy_tmp_references():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_test_"))
+    try:
+        data = run_hook(workdir)
+        context = data["hookSpecificOutput"]["additionalContext"]
+        # The three former /tmp references must be gone.
+        for legacy in ("/tmp/<task>.py", "JSON files in /tmp", "python /tmp/"):
+            assert legacy not in context, f"legacy /tmp reference still present: {legacy!r}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_workbench_path_appears_in_run_guidance():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_test_"))
+    try:
+        data = run_hook(workdir)
+        context = data["hookSpecificOutput"]["additionalContext"]
+        expected = str((workdir / ".claude" / "workbench").resolve())
+        # The "How to run" guidance should reference the workbench path for
+        # both writing the file and executing it.
+        assert context.count(expected) >= 2, (
+            "workbench path should appear at least twice (write + run); "
+            f"got {context.count(expected)} occurrence(s)"
+        )
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_workbench_dir_created_and_path_in_context()
     print("test_workbench_dir_created_and_path_in_context: PASS")
+    test_no_legacy_tmp_references()
+    print("test_no_legacy_tmp_references: PASS")
+    test_workbench_path_appears_in_run_guidance()
+    print("test_workbench_path_appears_in_run_guidance: PASS")

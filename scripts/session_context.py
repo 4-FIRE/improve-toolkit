@@ -76,15 +76,15 @@ Save durable facts that improve future sessions. Skip anything stale within a we
 ### How to run
 
 - **Simple one-liner or pipe** (no control flow, no multi-line logic): use `python -c` inline in Bash.
-- **Anything else**: `Write` to `/tmp/<task>.py`, then `python /tmp/<task>.py`.
-- Prefer overwriting the same temp file for the same task rather than creating new files.
+- **Anything else**: `Write` to `__WORKBENCH_DIR__/<task>.py`, then `python __WORKBENCH_DIR__/<task>.py`.
+- Prefer overwriting the same workbench file for the same task rather than creating new files.
 
 ### Process isolation
 
 Each Bash invocation is a **fresh process** — variables do NOT persist between calls. Pass data forward via:
 
 - **stdout** for simple values (print and re-parse next step).
-- **JSON files in /tmp** for structured or nested data (more reliable than parsing stdout).
+- **JSON files in __WORKBENCH_DIR__/** for structured or nested data (more reliable than parsing stdout).
 
 ### Working loop
 
@@ -117,7 +117,12 @@ For multi-step tasks: sketch the plan briefly, execute one step at a time, break
 
 """
 
-MESSAGE = f"{PERSONA_PROMPT}\n\n" f"🕐 北京时间: {beijing_time}\n\n"
+# Interpolate the concrete, resolved workbench path into the persona text.
+# Placeholder substitution (not an f-string) because PERSONA_PROMPT contains
+# markdown with braces that would otherwise need escaping.
+_prompt = PERSONA_PROMPT.replace("__WORKBENCH_DIR__", str(get_workbench_dir().resolve()))
+
+MESSAGE = f"{_prompt}\n\n" f"🕐 北京时间: {beijing_time}\n\n"
 
 output = {
     "hookSpecificOutput": {
