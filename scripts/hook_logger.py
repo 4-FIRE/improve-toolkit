@@ -6,8 +6,30 @@ Debug logger for hooks.
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from datetime import datetime
+
+
+def read_hook_input() -> dict:
+    """Read and parse the hook JSON payload from stdin.
+
+    On Windows, ``sys.stdin`` uses the system ANSI codepage with the
+    ``surrogateescape`` error handler. Bytes that are not representable in
+    that codepage (e.g. raw UTF-8 byte 0x80) get decoded into lone
+    surrogates such as ``\\udc80``. Those surrogates survive ``json.load``
+    and later crash UTF-8 encoding when writing logs or inserting into
+    SQLite (``UnicodeEncodeError: surrogates not allowed``).
+
+    Reading raw bytes and decoding as UTF-8 with ``errors='replace'`` keeps
+    the parsed data encodable everywhere downstream.
+    """
+    try:
+        raw = sys.stdin.buffer.read()
+        text = raw.decode("utf-8", errors="replace")
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError, AttributeError, UnicodeError):
+        return {}
 
 
 def log_hook_data(hook_name: str, input_data: dict) -> None:
@@ -31,7 +53,9 @@ def log_hook_data(hook_name: str, input_data: dict) -> None:
         except (subprocess.SubprocessError, FileNotFoundError):
             pass
     
-    with open(log_file, 'a', encoding='utf-8') as f:
+    # errors='replace' guards against lone surrogates slipping in from
+    # os.environ values (also decoded with surrogateescape on Windows).
+    with open(log_file, 'a', encoding='utf-8', errors='replace') as f:
         f.write(f"\n{'='*80}\n")
         f.write(f"Time: {datetime.now().isoformat()}\n")
         f.write(f"Hook Event: {hook_name}\n")

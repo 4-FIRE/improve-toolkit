@@ -10,15 +10,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from session_db import record_conversation
-from hook_logger import log_hook_data
+from hook_logger import log_hook_data, read_hook_input
 
 
 def main():
-    try:
-        input_data = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        input_data = {}
-    
+    input_data = read_hook_input()
+
     log_hook_data("UserPromptSubmit", input_data)
     
     session_id = input_data.get("session_id", "unknown")
