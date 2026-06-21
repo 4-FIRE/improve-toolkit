@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook workflow_reminder.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook session_context.py"
           },
           {
             "type": "command",

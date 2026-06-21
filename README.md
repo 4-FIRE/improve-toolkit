@@ -5,7 +5,7 @@
 ## 架构
 
 - **MCP 服务 `4-fire`**：本地 Python 服务，提供 memory、skill_manage、session_search、session_history 工具。
-- **SessionStart 钩子**：会话启动时加载记忆，并通过 `scripts/workflow_reminder.py` 注入助手人格提示词（`PERSONA_PROMPT`）与时间提醒。
+- **SessionStart 钩子**：会话启动时加载记忆，并通过 `scripts/session_context.py` 注入助手人格提示词（`PERSONA_PROMPT`）与时间提醒。
 - **会话生命周期钩子**：`hooks/hooks.json` 统一管理 SessionStart / SessionEnd / UserPromptSubmit / Stop。
 
 ## 环境要求

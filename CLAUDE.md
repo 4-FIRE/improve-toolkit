@@ -10,7 +10,7 @@ One MCP server is configured in `.claude-plugin/plugin.json`:
 
 ## Persona Injection
 
-The assistant persona (direct, technically precise assistant; memory/skill/code conventions; sub-agent guidelines) is **not** defined as an agent file. It is injected as session-start context by `scripts/workflow_reminder.py` via the `SessionStart` hook's `additionalContext` field. Edit the `PERSONA_PROMPT` constant there to change it.
+The assistant persona (direct, technically precise assistant; memory/skill/code conventions; sub-agent guidelines) is **not** defined as an agent file. It is injected as session-start context by `scripts/session_context.py` via the `SessionStart` hook's `additionalContext` field. Edit the `PERSONA_PROMPT` constant there to change it.
 
 ## Hooks
 
@@ -22,9 +22,9 @@ Session lifecycle hooks in `hooks/hooks.json`:
 ## Plugin Structure
 
 - `.claude-plugin/` - Plugin metadata and MCP server config
-- `agents/` - Agent definitions (currently empty; persona lives in `scripts/workflow_reminder.py`)
+- `agents/` - Agent definitions (currently empty; persona lives in `scripts/session_context.py`)
 - `commands/` - Workflow commands (currently empty)
 - `servers/` - Local MCP server implementation
-- `scripts/` - Hook scripts and utilities (incl. `workflow_reminder.py` persona injection)
+- `scripts/` - Hook scripts and utilities (incl. `session_context.py` persona injection)
 - `hooks/hooks.json` - Hook configuration
 - `skills/` - Skill definitions
