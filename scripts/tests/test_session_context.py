@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Standalone tests for scripts/session_context.py — run with:
-    python scripts/test_session_context.py
+Tests for scripts/session_context.py — run with:
+    python scripts/tests/test_session_context.py
 
 Stdlib only, no pytest. Runs the hook as a subprocess against a temp
 CLAUDE_PROJECT_DIR (mirrors servers/test_tools.py's subprocess style).
@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent / "session_context.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "session_context.py"
 
 
 def run_hook(workdir: Path) -> dict:
@@ -72,10 +72,29 @@ def test_workbench_path_appears_in_run_guidance():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+ALL_TESTS = [
+    test_workbench_dir_created_and_path_in_context,
+    test_no_legacy_tmp_references,
+    test_workbench_path_appears_in_run_guidance,
+]
+
+
+def main():
+    passed = 0
+    failed = 0
+    for test in ALL_TESTS:
+        try:
+            test()
+            print(f"  PASS  {test.__name__}")
+            passed += 1
+        except Exception as e:
+            print(f"  FAIL  {test.__name__}: {e}")
+            failed += 1
+
+    print(f"\n{passed} passed, {failed} failed, {passed + failed} total")
+    if failed:
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    test_workbench_dir_created_and_path_in_context()
-    print("test_workbench_dir_created_and_path_in_context: PASS")
-    test_no_legacy_tmp_references()
-    print("test_no_legacy_tmp_references: PASS")
-    test_workbench_path_appears_in_run_guidance()
-    print("test_workbench_path_appears_in_run_guidance: PASS")
+    main()

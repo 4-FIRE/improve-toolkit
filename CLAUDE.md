@@ -8,23 +8,57 @@ One MCP server is configured in `.claude-plugin/plugin.json`:
 
 1. **4-fire** (local): Python MCP server exposing memory, skill_manage, session_search, session_history tools
 
-## Persona Injection
+## Commands
 
-The assistant persona (direct, technically precise assistant; memory/skill/code conventions; sub-agent guidelines) is **not** defined as an agent file. It is injected as session-start context by `scripts/session_context.py` via the `SessionStart` hook's `additionalContext` field. Edit the `PERSONA_PROMPT` constant there to change it.
+```bash
+# Run all unit tests (scripts/tests/)
+python scripts/run_tests.py
 
-## Hooks
+# Run a single test file
+python scripts/tests/test_session_db.py
+```
 
-Session lifecycle hooks in `hooks/hooks.json`:
-- SessionStart: load memory, inject persona/workflow reminder, session-start logging
-- SessionEnd: cleanup
-- UserPromptSubmit / Stop: logging hooks
+## Architecture
 
-## Plugin Structure
+### Hook Pipeline
 
-- `.claude-plugin/` - Plugin metadata and MCP server config
-- `agents/` - Agent definitions (currently empty; persona lives in `scripts/session_context.py`)
-- `commands/` - Workflow commands (currently empty)
-- `servers/` - Local MCP server implementation
-- `scripts/` - Hook scripts and utilities (incl. `session_context.py` persona injection)
-- `hooks/hooks.json` - Hook configuration
-- `skills/` - Skill definitions
+Session lifecycle hooks are defined in `hooks/hooks.json`. Each hook runs via `scripts/run_hook <script.py>` which resolves a Python 3 interpreter. Hook scripts follow a uniform pattern:
+
+1. Read JSON payload from stdin (`hook_logger.read_hook_input`)
+2. Process (log, persist, transform)
+3. Print JSON result to stdout (consumed by Claude Code)
+
+**Execution order at SessionStart:** `session_context.py` (persona injection) → `load_memory.py` (memory/user profile) → `hook_session_start.py` (DB record).
+
+### Scripts Layer (`scripts/`)
+
+Pure stdlib Python — no virtualenv needed (unlike `servers/`).
+
+| Module | Role |
+|---|---|
+| `session_db.py` | Central data layer — SQLite CRUD for sessions, conversations, transcripts |
+| `session_search.py` | Search/history CLI + MCP tool wrappers over session_db |
+| `hook_logger.py` | Shared stdin reader + file logger for all hooks |
+| `session_context.py` | Builds persona prompt with workbench path, emits SessionStart context |
+| `load_memory.py` | Reads `MEMORY.md`/`USER.md` from `.claude/memories/`, renders prompt blocks |
+
+### Data Flow
+
+```
+hooks.json → run_hook → hook script → session_db.py → .claude/sessions/sessions.db
+                                                  ↕
+                                   session_search.py (query/CLI)
+```
+
+All persistent state lives in SQLite at `$CLAUDE_PROJECT_DIR/.claude/sessions/sessions.db`. Memory files live in `.claude/memories/` (MEMORY.md, USER.md), separated by `§` delimiter.
+
+### Plugin Structure
+
+- `.claude-plugin/` — Plugin metadata and MCP server config
+- `servers/` — MCP server (has its own `.venv`, `pyproject.toml`)
+- `scripts/` — Hook scripts and utilities (stdlib only, no venv)
+- `scripts/tests/` — Unit tests (stdlib, run individually or via `run_tests.py`)
+- `hooks/hooks.json` — Hook configuration
+- `skills/` — Skill definitions
+- `agents/` — Agent definitions (currently empty)
+- `commands/` — Workflow commands (currently empty)
