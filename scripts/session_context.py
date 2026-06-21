@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Output workflow reminder at session start.
+Inject persona prompt and context at session start.
 """
 
 import json
