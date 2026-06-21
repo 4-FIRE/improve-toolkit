@@ -44,7 +44,6 @@ from typing import Dict, Any, Optional, Tuple
 import yaml
 
 from .utils import atomic_replace, tool_error, get_home
-from .git_sync import git_sync
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +276,6 @@ def _create_skill(name: str, content: str) -> Dict[str, Any]:
     skill_md = skill_dir / "SKILL.md"
     _atomic_write_text(skill_md, content)
 
-    git_sync("skill_manage", "create", f"name={name}")
     result = {
         "success": True,
         "message": f"Skill '{name}' created.",
@@ -311,7 +309,6 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
     skill_md = existing["path"] / "SKILL.md"
     _atomic_write_text(skill_md, content)
 
-    git_sync("skill_manage", "edit", f"name={name}")
     return {
         "success": True,
         "message": f"Skill '{name}' updated.",
@@ -403,7 +400,6 @@ def _patch_skill(
 
     _atomic_write_text(target, new_content)
 
-    git_sync("skill_manage", "patch", f"name={name}")
     return {
         "success": True,
         "message": f"Patched {'SKILL.md' if not file_path else file_path} in skill '{name}' ({match_count} replacement{'s' if match_count > 1 else ''}).",
@@ -422,7 +418,6 @@ def _delete_skill(name: str) -> Dict[str, Any]:
     skill_dir = existing["path"]
     shutil.rmtree(skill_dir)
 
-    git_sync("skill_manage", "delete", f"name={name}")
     return {
         "success": True,
         "message": f"Skill '{name}' deleted.",
@@ -466,7 +461,6 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
     target.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(target, file_content)
 
-    git_sync("skill_manage", "write_file", f"name={name}, path={file_path}")
     return {
         "success": True,
         "message": f"File '{file_path}' written to skill '{name}'.",
@@ -514,7 +508,6 @@ def _remove_file(name: str, file_path: str) -> Dict[str, Any]:
     if parent != skill_dir and parent.exists() and not any(parent.iterdir()):
         parent.rmdir()
 
-    git_sync("skill_manage", "remove_file", f"name={name}, path={file_path}")
     return {
         "success": True,
         "message": f"File '{file_path}' removed from skill '{name}'.",

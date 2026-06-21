@@ -28,14 +28,6 @@ This project incorporates tools from the [hermes-agent](https://github.com/NousR
 - **memory_tool.py** - Synchronized from [hermes-agent memory_tool.py](https://raw.githubusercontent.com/NousResearch/hermes-agent/refs/heads/main/tools/memory_tool.py)
 - **skill_manager_tool.py** - Synchronized from [hermes-agent skill_manager_tool.py](https://raw.githubusercontent.com/NousResearch/hermes-agent/refs/heads/main/tools/skill_manager_tool.py)
 
-## Local Modifications
-
-The following enhancements were made to the original hermes-agent tools:
-
-1. **git_sync.py** - New module for automatic git synchronization
-2. **Automatic backup** - Memory and skill changes are automatically committed/pushed
-3. **Git repo initialization** - Automatically initializes git if not present
-
 ## License
 
 See hermes-agent repository for original tool licenses.

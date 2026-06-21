@@ -9,7 +9,6 @@ MCP server implementation for 4-fire toolkit.
 | `utils.py` | Helper functions: `get_home()`, `atomic_replace()`, `tool_error()` |
 | `memory_tool.py` | Persistent memory store (MEMORY.md, USER.md) |
 | `skill_manager_tool.py` | Skill creation and management |
-| `git_sync.py` | Automatic git synchronization for tool changes |
 
 ## Source Attribution
 
@@ -61,13 +60,6 @@ When syncing, apply these modifications to maintain compatibility:
 - Simplify `_resolve_skill_dir(name, category)` → `_resolve_skill_dir(name)`
 - Remove category cleanup in `_delete_skill()`
 - Remove `category` field from `SKILL_MANAGE_SCHEMA`
-
-### Git Sync Integration
-
-- Add `from .git_sync import git_sync` import
-- Add `git_sync(tool_name, action, details)` calls after each write operation:
-  - `add`, `replace`, `remove` in memory_tool
-  - `create`, `edit`, `patch`, `delete`, `write_file`, `remove_file` in skill_manager_tool
 
 ### Import Dependencies
 

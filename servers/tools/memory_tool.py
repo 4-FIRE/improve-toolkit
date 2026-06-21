@@ -33,7 +33,6 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
 from .utils import atomic_replace, tool_error, get_home
-from .git_sync import git_sync
 
 # fcntl is Unix-only; on Windows use msvcrt for file locking
 msvcrt = None
@@ -296,7 +295,6 @@ class MemoryStore:
             self._set_entries(target, entries)
             self.save_to_disk(target)
 
-        git_sync("memory", "add", f"target={target}, content={content}")
         return self._success_response(target, "Entry added.")
 
     def replace(self, target: str, old_text: str, new_content: str) -> Dict[str, Any]:
@@ -355,7 +353,6 @@ class MemoryStore:
             self._set_entries(target, entries)
             self.save_to_disk(target)
 
-        git_sync("memory", "replace", f"target={target}, content={new_content}")
         return self._success_response(target, "Entry replaced.")
 
     def remove(self, target: str, old_text: str) -> Dict[str, Any]:
@@ -390,7 +387,6 @@ class MemoryStore:
             self._set_entries(target, entries)
             self.save_to_disk(target)
 
-        git_sync("memory", "remove", f"target={target}, content={old_text}")
         return self._success_response(target, "Entry removed.")
 
     def format_for_system_prompt(self, target: str) -> Optional[str]:
