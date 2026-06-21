@@ -122,9 +122,17 @@ For multi-step tasks: sketch the plan briefly, execute one step at a time, break
 # Interpolate the concrete, resolved workbench path into the persona text.
 # Placeholder substitution (not an f-string) because PERSONA_PROMPT contains
 # markdown with braces that would otherwise need escaping.
-_prompt = PERSONA_PROMPT.replace("__WORKBENCH_DIR__", str(get_workbench_dir().resolve()))
+#
+# Use .as_posix() so the injected path is always forward-slash regardless of
+# OS. On Windows, Path.resolve() yields backslashes (D:\...\workbench); the
+# template hardcodes `/<task>.py`, which would produce mixed separators
+# (D:\...\workbench/<task>.py) — works in cmd/PowerShell/Python but breaks
+# under git-bash where `\` is an escape char. Forward slashes are valid
+# everywhere and shell-safe.
+_workbench_path = get_workbench_dir().resolve().as_posix()
+_prompt = PERSONA_PROMPT.replace("__WORKBENCH_DIR__", _workbench_path)
 
-MESSAGE = f"{_prompt}\n\n" f"🕐 北京时间: {beijing_time}\n\n"
+MESSAGE = f"{_prompt}\n" f"🕐 北京时间: {beijing_time}\n"
 
 output = {
     "hookSpecificOutput": {
