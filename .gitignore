@@ -62,4 +62,5 @@ logs/
 .claude/sessions/
 .claude/logs/
 .claude/skills/
+.claude/workbench/
 
