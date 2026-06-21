@@ -4,8 +4,14 @@ Output workflow reminder at session start.
 """
 
 import json
+import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+# Windows defaults stdout to the locale codepage (GBK/cp936); json.dumps with
+# ensure_ascii=False emits raw Unicode (✗, ✓, 🕐, …) that GBK cannot encode,
+# raising UnicodeEncodeError before the hook payload is printed. Force UTF-8.
+sys.stdout.reconfigure(encoding="utf-8")
 
 beijing_tz = ZoneInfo("Asia/Shanghai")
 

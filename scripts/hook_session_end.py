@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+# Windows defaults stdout to the locale codepage (GBK/cp936); ensure_ascii=False
+# payloads with non-GBK characters would crash on print. Force UTF-8.
+sys.stdout.reconfigure(encoding="utf-8")
 from session_db import record_session_end, save_transcript
 from hook_logger import log_hook_data, read_hook_input
 

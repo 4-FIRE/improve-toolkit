@@ -15,6 +15,10 @@ import sys
 import traceback
 from pathlib import Path
 
+# Windows defaults stdout to GBK; force UTF-8 so memory content with non-GBK
+# characters (emoji, box-drawing, etc.) prints without UnicodeEncodeError.
+sys.stdout.reconfigure(encoding="utf-8")
+
 ENTRY_DELIMITER = "\n§\n"
 MEMORY_CHAR_LIMIT = 2200
 USER_CHAR_LIMIT = 1375
