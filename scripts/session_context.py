@@ -4,8 +4,10 @@ Inject persona prompt and context at session start.
 """
 
 import json
+import os
 import sys
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 # Windows defaults stdout to the locale codepage (GBK/cp936); json.dumps with
@@ -17,6 +19,20 @@ beijing_tz = ZoneInfo("Asia/Shanghai")
 
 now = datetime.now(beijing_tz)
 beijing_time = now.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_workbench_dir() -> Path:
+    """Return the project-scoped dir for throwaway code-execution files.
+
+    Mirrors load_memory.py's get_home(): resolve via CLAUDE_PROJECT_DIR
+    (with '.' fallback so the hook works even when the env var is unset),
+    then .claude/workbench. Created at session start so the path is
+    writable even if the assistant writes via shell redirection.
+    """
+    return Path(os.environ.get("CLAUDE_PROJECT_DIR", ".")) / ".claude" / "workbench"
+
+
+get_workbench_dir().mkdir(parents=True, exist_ok=True)
 
 PERSONA_PROMPT = """
 <EXTREMELY_IMPORTANT>
