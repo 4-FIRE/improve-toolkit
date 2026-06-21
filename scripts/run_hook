@@ -13,11 +13,21 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 script="$1"
 shift
 
-for candidate in python3 python; do
+# Resolve a Python 3 interpreter that actually works. `command -v` alone is
+# not enough on Windows: the Microsoft Store ships `python3.exe` /
+# `python.exe` stubs in WindowsApps that are on PATH and "exist" but, when
+# run, print "Python was not found" and exit non-zero — they would otherwise
+# be picked first and silently break every hook. Probe each candidate with
+# `-c` so the stubs (and any non-functional alias) are skipped.
+# `py` is tried first because the Python launcher is reliable on Windows and
+# is absent on most POSIX systems (where `python3` then wins).
+for candidate in py python3 python; do
     if command -v "$candidate" >/dev/null 2>&1; then
-        exec "$candidate" "$DIR/$script" "$@"
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+            exec "$candidate" "$DIR/$script" "$@"
+        fi
     fi
 done
 
-echo "4-fire hook: Python 3 interpreter not found (tried python3, python)." >&2
+echo "4-fire hook: Python 3 interpreter not found (tried py, python3, python)." >&2
 exit 1

@@ -50,79 +50,109 @@ def venv_python_path():
     return None
 
 
-def venv_site_packages():
-    """Venv site-packages dir: Lib/site-packages on Windows, lib/pythonX.Y/site-packages elsewhere."""
-    if IS_WINDOWS:
-        return VENV_DIR / "Lib" / "site-packages"
-    py_dir = "python{}.{}".format(sys.version_info[0], sys.version_info[1])
-    return VENV_DIR / "lib" / py_dir / "site-packages"
-
-
 def ensure_venv():
+    """Create the venv if missing and return the path to its Python executable.
+
+    Does NOT activate/re-exec — the caller decides whether to re-exec into the
+    venv interpreter (see re_exec_into_venv). Kept separate so dependency
+    probing and the venv switch each have one job.
+    """
     if not VENV_DIR.exists():
         print(f"创建虚拟环境: {VENV_DIR}", file=sys.stderr)
-        subprocess.check_call([sys.executable, "-m", "venv", str(VENV_DIR)])
+        # Route the venv module's stdout to our stderr so it never lands on the
+        # MCP JSON-RPC channel (our stdout), which the host parses line-by-line.
+        subprocess.check_call(
+            [sys.executable, "-m", "venv", str(VENV_DIR)],
+            stdout=sys.stderr,
+        )
         print("虚拟环境创建完成", file=sys.stderr)
 
     venv_python = venv_python_path()
     if venv_python is None:
         print(f"错误: 虚拟环境 Python 不存在: {venv_bin_dir()}", file=sys.stderr)
         sys.exit(1)
-
-    in_venv = sys.prefix != sys.base_prefix
-
-    print(f"sys.prefix: {sys.prefix}", file=sys.stderr)
-    print(f"sys.base_prefix: {sys.base_prefix}", file=sys.stderr)
-    print(f"in_venv: {in_venv}", file=sys.stderr)
-
-    if not in_venv:
-        if IS_WINDOWS:
-            # os.execv does not replace the running process on Windows — it
-            # spawns a child while the parent keeps running, which severs the
-            # stdio pipes the MCP host uses to talk to this server. Stay in the
-            # same process and put the venv's site-packages first on sys.path so
-            # imports (and the pip install below) resolve into the venv.
-            sp = venv_site_packages()
-            if sp.exists() and str(sp) not in sys.path:
-                sys.path.insert(0, str(sp))
-            print(f"使用虚拟环境 site-packages: {sp}", file=sys.stderr)
-        else:
-            print(f"切换到虚拟环境: {venv_python}", file=sys.stderr)
-            os.execv(str(venv_python), [str(venv_python), __file__])
-
     return str(venv_python)
 
 
+def re_exec_into_venv(venv_python):
+    """Run this server under the venv interpreter; never returns.
+
+    On POSIX, os.execv replaces the process in place. On Windows, os.execv
+    spawns a child while the parent keeps running, which severs the stdio
+    pipes the MCP host speaks over — so instead spawn the venv python as a
+    child with inherited stdio handles and wait. The host talks to the child
+    directly through those inherited pipes.
+
+    Running under the venv interpreter is required on Windows because mcp's
+    transitive dep pywin32 registers its pywintypes DLL onto the search path
+    only via a .pth that runs at venv-interpreter startup; the parent (system)
+    Python cannot load it, and importing mcp from site-packages prepended to
+    the parent's sys.path fails with `No module named 'pywintypes'`.
+    """
+    argv = [str(venv_python), __file__, *sys.argv[1:]]
+    if IS_WINDOWS:
+        proc = subprocess.Popen(
+            argv,
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        sys.exit(proc.wait())
+    else:
+        os.execv(str(venv_python), argv)
+
+
 def check_and_install_dependencies(venv_python):
-    required_packages = {
-        "mcp": "mcp>=1.0.0",
-        "yaml": "pyyaml>=6.0",
-    }
+    """Ensure mcp + pyyaml are importable inside the venv.
 
-    missing_packages = []
+    Deps are probed via the venv interpreter itself (a subprocess), not via
+    __import__ in this process: on Windows the parent process cannot load
+    pywin32's pywintypes DLL from the venv, so __import__ here would falsely
+    report mcp as missing and trigger a reinstall on every boot (which never
+    fixes the DLL problem and prevents the server from initializing before the
+    MCP host's timeout).
+    """
+    probe = subprocess.run(
+        [venv_python, "-c", "import mcp, yaml"],
+        capture_output=True,
+    )
+    if probe.returncode == 0:
+        return
 
-    for module_name, package_spec in required_packages.items():
-        try:
-            __import__(module_name)
-        except ImportError:
-            missing_packages.append(package_spec)
+    print("正在安装缺失的依赖: mcp>=1.0.0, pyyaml>=6.0", file=sys.stderr)
+    try:
+        # Route pip's stdout to our stderr: pip prints "Collecting/Installing"
+        # status to stdout, which is the MCP JSON-RPC channel and would corrupt
+        # the protocol stream on first boot.
+        subprocess.check_call(
+            [venv_python, "-m", "pip", "install", "mcp>=1.0.0", "pyyaml>=6.0"],
+            stdout=sys.stderr,
+        )
+        print("依赖安装完成", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"依赖安装失败: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    if missing_packages:
-        print(f"正在安装缺失的依赖: {', '.join(missing_packages)}", file=sys.stderr)
-        try:
-            subprocess.check_call(
-                [venv_python, "-m", "pip", "install"] + missing_packages
+    # pywin32 (a transitive dep of mcp on Windows) ships pywintypes as a DLL
+    # that is only placed on the DLL search path by a post-install script.
+    # Without this step, `import mcp` -> `import pywintypes` fails even inside
+    # the venv interpreter. Idempotent and quiet on subsequent boots.
+    if IS_WINDOWS:
+        postinstall = venv_bin_dir() / "pywin32_postinstall.py"
+        if postinstall.exists():
+            subprocess.run(
+                [venv_python, str(postinstall), "-install"],
+                capture_output=True,
             )
-            print("依赖安装完成", file=sys.stderr)
-            import importlib
-            importlib.invalidate_caches()
-        except subprocess.CalledProcessError as e:
-            print(f"依赖安装失败: {e}", file=sys.stderr)
-            sys.exit(1)
+            print("pywin32 post-install 完成", file=sys.stderr)
 
 
 _venv_python = ensure_venv()
 check_and_install_dependencies(_venv_python)
+# Binary deps (pywin32/pywintypes) only load under the venv interpreter —
+# re-exec into it. No-op (falls through) once we're already inside the venv.
+if sys.prefix == sys.base_prefix:
+    re_exec_into_venv(_venv_python)
 
 import asyncio
 import json
