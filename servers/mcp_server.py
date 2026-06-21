@@ -3,19 +3,6 @@
 MCP Server for 4-Fire Toolkit - stdio protocol
 
 Exposes memory_tool and skill_manager_tool as MCP tools via stdio transport.
-
-Usage:
-    python mcp_server.py
-
-Or add to Claude Desktop config:
-    {
-        "mcpServers": {
-            "4-fire": {
-                "command": "python3",
-                "args": ["${CLAUDE_PLUGIN_ROOT}/servers/mcp_server.py"]
-            }
-        }
-    }
 """
 
 import os

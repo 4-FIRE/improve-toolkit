@@ -14,7 +14,7 @@
       "name": "improve-toolkit",
       "source": "./",
       "description": "让 Claude Code 持续进化的插件：通过 4-fire MCP 工具（持久记忆、技能管理、会话搜索）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "author": {
         "name": "qiyan",
         "email": "yhb3420@qq.com"
