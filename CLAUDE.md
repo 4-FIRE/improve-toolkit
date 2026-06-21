@@ -62,3 +62,12 @@ All persistent state lives in SQLite at `$CLAUDE_PROJECT_DIR/.claude/sessions/se
 - `skills/` — Skill definitions
 - `agents/` — Agent definitions (currently empty)
 - `commands/` — Workflow commands (currently empty)
+
+### Versioning
+
+The plugin version lives in **two** files that must be kept in sync — forgetting one leaves the marketplace listing stale:
+
+- `.claude-plugin/plugin.json` → `version`
+- `.claude-plugin/marketplace.json` → `plugins[].version`
+
+When bumping the version, update both and commit together.
