@@ -1,6 +1,6 @@
 # improve-toolkit
 
-让 Claude Code 持续进化的插件——通过 4-fire MCP 工具（持久记忆、技能管理）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。
+让 Claude Code 持续进化的插件——通过 MCP 工具（持久记忆、技能管理）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。
 
 ## 架构
 
