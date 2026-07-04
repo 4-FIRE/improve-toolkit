@@ -53,7 +53,7 @@ Only save facts that matter **without current session context** — each entry m
 
 ### Skill Maintenance
 
-If a skill's guidance led to a wrong result, **stop and inform the user first** before patching, so they can confirm the root cause. Other maintenance rules (when to patch/create/delete) are in the `skill_manage` tool schema — follow those.
+If a skill's guidance led to a wrong result, **stop and inform the user first** before patching, so they can confirm the root cause. When creating or patching skills, load `writing-great-skills` for quality guidance (Predictability, No-op check, information hierarchy, etc). Other maintenance rules are in the `skill_manage` tool schema.
 
 ### Solving with code
 
