@@ -4,7 +4,7 @@ Load memory files at session start for system prompt injection.
 Outputs JSON with additional_context for SessionStart hook.
 
 Based on MemoryStore from memory_tool.py:
-- Memory files live in .claude/memories/ (or A_TOOLKIT_HOME/memories/)
+- Memory files live in .claude/memories/
 - Separate char limits: memory (2200), user (1375)
 - Frozen snapshot pattern: system prompt is stable across session
 """
