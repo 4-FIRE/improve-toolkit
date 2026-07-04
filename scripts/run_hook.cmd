@@ -26,5 +26,5 @@ where python3 >nul 2>&1 && (
     exit /b %ERRORLEVEL%
 )
 
-echo 4-fire hook: Python 3 interpreter not found (tried py, python, python3). 1>&2
+echo improve hook: Python 3 interpreter not found (tried py, python, python3). 1>&2
 exit /b 1

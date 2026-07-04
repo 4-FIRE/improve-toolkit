@@ -1,5 +1,5 @@
 #!/bin/sh
-# Cross-platform launcher for the 4-fire MCP server (macOS / Linux).
+# Cross-platform launcher for the improve MCP server (macOS / Linux).
 #
 # Only job: resolve a Python 3 interpreter and run mcp_server.py. The server
 # itself handles virtualenv creation, dependency installation, and (on Windows)
@@ -16,5 +16,5 @@ for candidate in python3 python; do
     fi
 done
 
-echo "4-fire: Python 3 interpreter not found (tried python3, python)." >&2
+echo "improve: Python 3 interpreter not found (tried python3, python)." >&2
 exit 1

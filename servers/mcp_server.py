@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCP Server for 4-Fire Toolkit - stdio protocol
+MCP Server for Improve Toolkit - stdio protocol
 
 Exposes memory_tool and skill_manager_tool as MCP tools via stdio transport.
 """
@@ -156,7 +156,7 @@ from tools import (
     SKILL_MANAGE_SCHEMA,
 )
 
-app = Server("4-fire")
+app = Server("improve")
 
 memory_store = MemoryStore()
 memory_store.load_from_disk()

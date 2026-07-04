@@ -29,5 +29,5 @@ for candidate in py python3 python; do
     fi
 done
 
-echo "4-fire hook: Python 3 interpreter not found (tried py, python3, python)." >&2
+echo "improve hook: Python 3 interpreter not found (tried py, python3, python)." >&2
 exit 1

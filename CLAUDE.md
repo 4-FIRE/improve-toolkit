@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 One MCP server is configured in `.claude-plugin/plugin.json`:
 
-1. **4-fire** (local): Python MCP server exposing memory, skill_manage tools
+1. **improve** (local): Python MCP server exposing memory, skill_manage tools
 
 ## Commands
 

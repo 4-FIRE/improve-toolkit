@@ -4,7 +4,7 @@
 
 ## 架构
 
-- **MCP 服务 `4-fire`**：本地 Python 服务，提供 memory、skill_manage 工具。
+- **MCP 服务 `improve`**：本地 Python 服务，提供 memory、skill_manage 工具。
 - **SessionStart 钩子**：会话启动时加载记忆，并通过 `scripts/session_context.py` 注入助手人格提示词（`PERSONA_PROMPT`）与时间提醒。
 - **技能管理**：通过 `skill_manage` 工具创建/修补/删除技能，将可复用工作流沉淀到 `.claude/skills/`。
 

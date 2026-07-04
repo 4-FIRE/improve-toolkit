@@ -1,5 +1,5 @@
 @echo off
-REM Cross-platform launcher for the 4-fire MCP server (Windows).
+REM Cross-platform launcher for the improve MCP server (Windows).
 REM
 REM Only job: resolve a Python 3 interpreter and run mcp_server.py. The server
 REM itself handles virtualenv creation, dependency installation, and in-process
@@ -26,5 +26,5 @@ where python3 >nul 2>&1 && (
     exit /b %ERRORLEVEL%
 )
 
-echo 4-fire: Python 3 interpreter not found (tried py, python, python3). 1>&2
+echo improve: Python 3 interpreter not found (tried py, python, python3). 1>&2
 exit /b 1

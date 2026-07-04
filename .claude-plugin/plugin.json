@@ -6,11 +6,11 @@
         "name": "qiyan"
     },
     "mcpServers": {
-        "4-fire": {
+        "improve": {
             "command": "${CLAUDE_PLUGIN_ROOT}/servers/launch_mcp",
             "args": [],
             "env": {
-                "_4_FIRE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
+                "IMPROVE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
             }
         }
     }

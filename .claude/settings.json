@@ -3,8 +3,8 @@
     "allow": [
       "Bash(python *)",
       "Bash(python3 *)",
-      "mcp__plugin_improve-toolkit_4-fire__memory",
-      "mcp__plugin_improve-toolkit_4-fire__skill_manage"
+      "mcp__plugin_improve-toolkit_improve__memory",
+      "mcp__plugin_improve-toolkit_improve__skill_manage"
     ]
   }
 }

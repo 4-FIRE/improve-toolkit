@@ -24,7 +24,7 @@ SCRIPTS_DIR = PLUGIN_DIR.parent / "scripts"
 
 # Initialize test environment BEFORE venv check so env vars propagate across execv()
 _TEST_DIR = None
-_TEST_DIR_ENV = "_4_FIRE_TEST_DIR"
+_TEST_DIR_ENV = "_IMPROVE_TEST_DIR"
 
 if __name__ == "__main__":
     # Reuse the same temp dir across execv(). If we call mkdtemp() again after execv,
@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     # Always isolate tests from any user-provided CLAUDE_PROJECT_DIR.
     os.environ["CLAUDE_PROJECT_DIR"] = _TEST_DIR
-    os.environ["_4_FIRE_PLUGIN_ROOT"] = str(PLUGIN_DIR.parent)
+    os.environ["IMPROVE_PLUGIN_ROOT"] = str(PLUGIN_DIR.parent)
 
     # Ensure we're running in the virtual environment
     if not VENV_DIR.exists():
