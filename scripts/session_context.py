@@ -6,19 +6,12 @@ Inject persona prompt and context at session start.
 import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 # Windows defaults stdout to the locale codepage (GBK/cp936); json.dumps with
-# ensure_ascii=False emits raw Unicode (✗, ✓, 🕐, …) that GBK cannot encode,
+# ensure_ascii=False emits raw Unicode (✗, ✓, …) that GBK cannot encode,
 # raising UnicodeEncodeError before the hook payload is printed. Force UTF-8.
 sys.stdout.reconfigure(encoding="utf-8")
-
-beijing_tz = ZoneInfo("Asia/Shanghai")
-
-now = datetime.now(beijing_tz)
-beijing_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_workbench_dir() -> Path:
@@ -118,7 +111,7 @@ One sentence of user-facing intent before each tool call, then:
 _workbench_path = get_workbench_dir().resolve().as_posix()
 _prompt = PERSONA_PROMPT.replace("__WORKBENCH_DIR__", _workbench_path)
 
-MESSAGE = f"{_prompt}\n" f"🕐 北京时间: {beijing_time}\n"
+MESSAGE = f"{_prompt}\n"
 
 output = {
     "hookSpecificOutput": {
