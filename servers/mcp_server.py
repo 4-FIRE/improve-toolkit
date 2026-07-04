@@ -157,12 +157,6 @@ from tools import (
     skill_spec_tool,
     SKILL_SPEC_SCHEMA,
 )
-from session_search import (
-    session_search_tool,
-    SESSION_SEARCH_SCHEMA,
-    session_history_tool,
-    SESSION_HISTORY_SCHEMA,
-)
 
 app = Server("4-fire")
 
@@ -187,16 +181,6 @@ async def list_tools():
             name="skill_spec",
             description=SKILL_SPEC_SCHEMA["description"],
             inputSchema=SKILL_SPEC_SCHEMA["parameters"],
-        ),
-        Tool(
-            name="session_search",
-            description=SESSION_SEARCH_SCHEMA["description"],
-            inputSchema=SESSION_SEARCH_SCHEMA["parameters"],
-        ),
-        Tool(
-            name="session_history",
-            description=SESSION_HISTORY_SCHEMA["description"],
-            inputSchema=SESSION_HISTORY_SCHEMA["parameters"],
         ),
     ]
 
@@ -228,20 +212,6 @@ async def call_tool(name: str, arguments: dict):
 
     elif name == "skill_spec":
         result = skill_spec_tool()
-        return [TextContent(type="text", text=result)]
-
-    elif name == "session_search":
-        result = session_search_tool(
-            query=arguments.get("query"),
-            role_filter=arguments.get("role_filter"),
-            limit=arguments.get("limit", 3),
-        )
-        return [TextContent(type="text", text=result)]
-
-    elif name == "session_history":
-        result = session_history_tool(
-            session_id=arguments.get("session_id", ""),
-        )
         return [TextContent(type="text", text=result)]
 
     else:

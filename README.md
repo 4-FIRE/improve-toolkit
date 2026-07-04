@@ -1,12 +1,12 @@
 # improve-toolkit
 
-让 Claude Code 持续进化的插件——通过 4-fire MCP 工具（持久记忆、技能管理、会话搜索）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。
+让 Claude Code 持续进化的插件——通过 4-fire MCP 工具（持久记忆、技能管理）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。
 
 ## 架构
 
-- **MCP 服务 `4-fire`**：本地 Python 服务，提供 memory、skill_manage、session_search、session_history 工具。
+- **MCP 服务 `4-fire`**：本地 Python 服务，提供 memory、skill_manage、skill_spec 工具。
 - **SessionStart 钩子**：会话启动时加载记忆，并通过 `scripts/session_context.py` 注入助手人格提示词（`PERSONA_PROMPT`）与时间提醒。
-- **会话生命周期钩子**：`hooks/hooks.json` 统一管理 SessionStart / SessionEnd / UserPromptSubmit / Stop。
+- **技能管理**：通过 `skill_manage` 工具创建/修补/删除技能，将可复用工作流沉淀到 `.claude/skills/`。
 
 ## 环境要求
 

@@ -66,7 +66,7 @@ Save durable facts that improve future sessions. Skip anything stale within a we
 - User shares a stable preference or personal detail
 - You discover a non-obvious environment fact or API quirk
 
-**When NOT to save:** task progress, session outcomes, commit SHAs, issue numbers, anything re-searchable via `session_search`.
+**When NOT to save:** task progress, session outcomes, commit SHAs, issue numbers, anything not durable across sessions.
 
 ### Skill Maintenance
 

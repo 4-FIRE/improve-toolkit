@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 One MCP server is configured in `.claude-plugin/plugin.json`:
 
-1. **4-fire** (local): Python MCP server exposing memory, skill_manage, session_search, session_history tools
+1. **4-fire** (local): Python MCP server exposing memory, skill_manage, skill_spec tools
 
 ## Commands
 
@@ -15,7 +15,7 @@ One MCP server is configured in `.claude-plugin/plugin.json`:
 python scripts/run_tests.py
 
 # Run a single test file
-python scripts/tests/test_session_db.py
+python scripts/tests/test_load_memory.py
 ```
 
 ## Architecture
@@ -36,8 +36,6 @@ Pure stdlib Python — no virtualenv needed (unlike `servers/`).
 
 | Module | Role |
 |---|---|
-| `session_db.py` | Central data layer — SQLite CRUD for sessions, conversations, transcripts |
-| `session_search.py` | Search/history CLI + MCP tool wrappers over session_db |
 | `hook_logger.py` | Shared stdin reader + file logger for all hooks |
 | `session_context.py` | Builds persona prompt with workbench path, emits SessionStart context |
 | `load_memory.py` | Reads `MEMORY.md`/`USER.md` from `.claude/memories/`, renders prompt blocks |
@@ -45,12 +43,10 @@ Pure stdlib Python — no virtualenv needed (unlike `servers/`).
 ### Data Flow
 
 ```
-hooks.json → run_hook → hook script → session_db.py → .claude/sessions/sessions.db
-                                                  ↕
-                                   session_search.py (query/CLI)
+hooks.json → run_hook → hook script → session_context.py (persona) → load_memory.py (memories)
 ```
 
-All persistent state lives in SQLite at `$CLAUDE_PROJECT_DIR/.claude/sessions/sessions.db`. Memory files live in `.claude/memories/` (MEMORY.md, USER.md), separated by `§` delimiter.
+Memory files live in `.claude/memories/` (MEMORY.md, USER.md), separated by `§` delimiter.
 
 ### Plugin Structure
 
