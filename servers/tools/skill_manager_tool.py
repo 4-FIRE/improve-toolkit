@@ -594,7 +594,7 @@ SKILL_MANAGE_SCHEMA = {
         "After difficult/iterative tasks, offer to save as a skill. "
         "Skip for simple one-offs. Confirm with user before creating/deleting.\n\n"
         "Good skills: trigger conditions, numbered steps with exact commands, "
-        "pitfalls section, verification steps. Use skill_spec to see format requirements."
+        "pitfalls section, verification steps. Use the writing-great-skills skill for format and quality guidance."
     ),
     "parameters": {
         "type": "object",

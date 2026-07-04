@@ -154,8 +154,6 @@ from tools import (
     MEMORY_SCHEMA,
     skill_manage,
     SKILL_MANAGE_SCHEMA,
-    skill_spec_tool,
-    SKILL_SPEC_SCHEMA,
 )
 
 app = Server("4-fire")
@@ -176,11 +174,6 @@ async def list_tools():
             name="skill_manage",
             description=SKILL_MANAGE_SCHEMA["description"],
             inputSchema=SKILL_MANAGE_SCHEMA["parameters"],
-        ),
-        Tool(
-            name="skill_spec",
-            description=SKILL_SPEC_SCHEMA["description"],
-            inputSchema=SKILL_SPEC_SCHEMA["parameters"],
         ),
     ]
 
@@ -208,10 +201,6 @@ async def call_tool(name: str, arguments: dict):
             new_string=arguments.get("new_string"),
             replace_all=arguments.get("replace_all", False),
         )
-        return [TextContent(type="text", text=result)]
-
-    elif name == "skill_spec":
-        result = skill_spec_tool()
         return [TextContent(type="text", text=result)]
 
     else:
