@@ -1,0 +1,41 @@
+{
+  "name": "improve-toolkit",
+  "version": "1.0.11",
+  "description": "为 Codex 和 Claude Code 提供持久记忆、技能管理与会话上下文注入，让编码助手能够积累经验并持续改进。",
+  "author": {
+    "name": "qiyan",
+    "email": "yhb3420@qq.com",
+    "url": "https://github.com/4-FIRE"
+  },
+  "homepage": "https://github.com/4-FIRE/improve-toolkit",
+  "repository": "https://github.com/4-FIRE/improve-toolkit",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "skills",
+    "self-improvement",
+    "codex",
+    "claude-code"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Improve Toolkit",
+    "shortDescription": "持久记忆与技能沉淀工具",
+    "longDescription": "通过本地 MCP 工具、可复用技能和会话启动上下文，让 Codex 在项目中积累经验、维护用户偏好并沉淀工作流。",
+    "developerName": "qiyan",
+    "category": "Productivity",
+    "capabilities": [
+      "Memory",
+      "Skill Management",
+      "Session Context"
+    ],
+    "websiteURL": "https://github.com/4-FIRE/improve-toolkit",
+    "defaultPrompt": [
+      "回顾本轮工作，把值得长期保留的事实和流程沉淀下来。",
+      "读取已有记忆，再继续处理当前项目。",
+      "把刚才验证过的复杂流程整理成可复用技能。"
+    ],
+    "brandColor": "#10A37F"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "improve": {
+      "command": "./servers/launch_mcp",
+      "args": [],
+      "cwd": "./",
+      "env": {
+        "IMPROVE_HOST": "codex"
+      },
+      "startup_timeout_sec": 120
+    }
+  }
+}

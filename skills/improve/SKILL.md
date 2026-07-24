@@ -111,6 +111,9 @@ description: 复盘与进化——把会话里值得长期记住的事实/偏好
 
 ## 执行
 
+调用 `memory` 或 `skill_manage` 时，如果工具 schema 提供 `project_dir`，
+传入当前工作区根目录的绝对路径；这是 Codex 保持记忆与技能按项目隔离的必要参数。
+
 1. **确认范围**——默认本轮会话；用户说"复盘今天"/"复盘上次 xxx"则根据已有记忆覆盖对应时间范围。范围越大越要克制——只挑真正"下次还有用"的
 2. **五源扫描**——用户信号 / 工具输出 / 调试根因 / 存量对照 / 技能反馈，逐项过一遍
 3. **沉淀 + 腾退同时做**——`memory(action=add|replace|remove)` 与 `skill_manage(action=create|patch|edit|delete)`；记忆写入前对每条过一遍「记忆写入前自检」清单；技能操作前加载 `writing-great-skills`，用其原则（**Predictability**、**Single source of truth**、**No-op** 检查等）校验改动质量

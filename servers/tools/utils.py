@@ -9,10 +9,12 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any
 
+from runtime_paths import get_data_home, get_skills_dir
+
 
 def get_home() -> Path:
-    """Return the project directory ($CLAUDE_PROJECT_DIR/.claude)."""
-    return Path(os.environ.get("CLAUDE_PROJECT_DIR", ".")) / ".claude"
+    """Return the host-aware Improve Toolkit data directory."""
+    return get_data_home()
 
 
 def atomic_replace(src: Path, dst: Path) -> None:

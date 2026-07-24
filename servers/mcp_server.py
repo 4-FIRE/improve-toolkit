@@ -155,11 +155,42 @@ from tools import (
     skill_manage,
     SKILL_MANAGE_SCHEMA,
 )
+from runtime_paths import get_data_home, get_host, get_project_dir, get_skills_dir
 
 app = Server("improve")
 
-memory_store = MemoryStore()
-memory_store.load_from_disk()
+memory_stores = {}
+
+
+def resolve_tool_project_dir(arguments: dict) -> Path:
+    """Resolve and validate the workspace root used by a stateful tool call."""
+    raw_project_dir = arguments.get("project_dir")
+    if not raw_project_dir:
+        if get_host() == "codex":
+            raise ValueError(
+                "project_dir is required when Improve Toolkit runs under Codex. "
+                "Pass the absolute current workspace root."
+            )
+        return get_project_dir().resolve()
+
+    project_dir = Path(raw_project_dir).expanduser()
+    if not project_dir.is_absolute():
+        raise ValueError("project_dir must be an absolute path.")
+    project_dir = project_dir.resolve()
+    if not project_dir.is_dir():
+        raise ValueError(f"project_dir does not exist or is not a directory: {project_dir}")
+    return project_dir
+
+
+def get_memory_store(project_dir: Path) -> MemoryStore:
+    """Return the cached memory store for one project."""
+    data_home = get_data_home(project_dir).resolve()
+    store = memory_stores.get(data_home)
+    if store is None:
+        store = MemoryStore(data_home=data_home)
+        store.load_from_disk()
+        memory_stores[data_home] = store
+    return store
 
 
 @app.list_tools()
@@ -180,17 +211,23 @@ async def list_tools():
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict):
-    if name == "memory":
-        result = memory_tool(
-            action=arguments.get("action", ""),
-            target=arguments.get("target", "memory"),
-            content=arguments.get("content"),
-            old_text=arguments.get("old_text"),
-            store=memory_store,
-        )
-        return [TextContent(type="text", text=result)]
+    if name in {"memory", "skill_manage"}:
+        try:
+            project_dir = resolve_tool_project_dir(arguments)
+        except ValueError as exc:
+            error = json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+            return [TextContent(type="text", text=error)]
 
-    elif name == "skill_manage":
+        if name == "memory":
+            result = memory_tool(
+                action=arguments.get("action", ""),
+                target=arguments.get("target", "memory"),
+                content=arguments.get("content"),
+                old_text=arguments.get("old_text"),
+                store=get_memory_store(project_dir),
+            )
+            return [TextContent(type="text", text=result)]
+
         result = skill_manage(
             action=arguments.get("action", ""),
             name=arguments.get("name", ""),
@@ -200,6 +237,7 @@ async def call_tool(name: str, arguments: dict):
             old_string=arguments.get("old_string"),
             new_string=arguments.get("new_string"),
             replace_all=arguments.get("replace_all", False),
+            skills_dir=get_skills_dir(project_dir),
         )
         return [TextContent(type="text", text=result)]
 

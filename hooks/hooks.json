@@ -2,15 +2,19 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|clear|compact",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook session_context.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook session_context.py",
+            "commandWindows": "\"%CLAUDE_PLUGIN_ROOT%\\scripts\\run_hook.cmd\" session_context.py",
+            "statusMessage": "Loading Improve Toolkit context"
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook load_memory.py"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run_hook load_memory.py",
+            "commandWindows": "\"%CLAUDE_PLUGIN_ROOT%\\scripts\\run_hook.cmd\" load_memory.py",
+            "statusMessage": "Loading Improve Toolkit memory"
           }
         ]
       }

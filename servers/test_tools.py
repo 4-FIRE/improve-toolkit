@@ -1045,6 +1045,62 @@ def test_skill_missing_name():
     print("  missing name: OK")
 
 
+def test_codex_project_scoping():
+    """Explicit Codex project_dir routes memory and skills into that project."""
+    print("\n=== Test Codex project scoping ===")
+    project_dir = Path(tempfile.mkdtemp(prefix="improve_codex_scope_"))
+    try:
+        data_home = project_dir / ".codex" / "improve-toolkit"
+        scoped_store = MemoryStore(data_home=data_home)
+        scoped_store.load_from_disk()
+        result = memory_tool(
+            "add",
+            "memory",
+            "Codex scoped memory",
+            store=scoped_store,
+        )
+        assert_success(json.loads(result))
+        assert (data_home / "memories" / "MEMORY.md").is_file()
+
+        scoped_skills = project_dir / ".agents" / "skills"
+        skill_content = """---
+name: codex-scoped-skill
+description: Test Codex project-scoped skill writes
+---
+
+# Scoped
+"""
+        result = skill_manage(
+            "create",
+            "codex-scoped-skill",
+            content=skill_content,
+            skills_dir=scoped_skills,
+        )
+        assert_success(json.loads(result))
+        assert (scoped_skills / "codex-scoped-skill" / "SKILL.md").is_file()
+        print("  explicit memory and skill paths: OK")
+
+        from mcp_server import resolve_tool_project_dir
+
+        old_host = os.environ.get("IMPROVE_HOST")
+        os.environ["IMPROVE_HOST"] = "codex"
+        try:
+            try:
+                resolve_tool_project_dir({})
+                raise AssertionError("Codex call without project_dir should fail")
+            except ValueError as exc:
+                assert "project_dir is required" in str(exc)
+            assert resolve_tool_project_dir({"project_dir": str(project_dir)}) == project_dir.resolve()
+        finally:
+            if old_host is None:
+                os.environ.pop("IMPROVE_HOST", None)
+            else:
+                os.environ["IMPROVE_HOST"] = old_host
+        print("  Codex project_dir validation: OK")
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+
 # =============================================================================
 # Main Test Runner
 # =============================================================================
@@ -1087,6 +1143,7 @@ def main():
     test_skill_remove_file_persistence()
     test_skill_unknown_action()
     test_skill_missing_name()
+    test_codex_project_scoping()
 
     cleanup_test_env()
 

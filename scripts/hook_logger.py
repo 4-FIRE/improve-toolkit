@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+from runtime_paths import get_data_home
+
 
 def read_hook_input() -> dict:
     """Read and parse the hook JSON payload from stdin.
@@ -34,7 +36,7 @@ def read_hook_input() -> dict:
 
 def log_hook_data(hook_name: str, input_data: dict) -> None:
     """Log hook input data. Only keeps today's logs."""
-    logs_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR", ".")) / ".claude" / "logs"
+    logs_dir = get_data_home() / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     
     today = datetime.now().strftime("%Y-%m-%d")
@@ -68,8 +70,23 @@ def log_hook_data(hook_name: str, input_data: dict) -> None:
         for field in ['sessionId', 'session_id', 'id', 'session']:
             if field in input_data:
                 f.write(f"  {field}: {input_data.get(field)}\n")
-        f.write(f"\nEnvironment Variables (CLAUDE/SESSION):\n")
+        safe_environment_keys = {
+            "PLUGIN_ROOT",
+            "PLUGIN_DATA",
+            "CLAUDE_PLUGIN_ROOT",
+            "CLAUDE_PROJECT_DIR",
+            "CLAUDE_SESSION_ID",
+            "CODEX_HOME",
+            "CODEX_THREAD_ID",
+            "IMPROVE_HOST",
+            "IMPROVE_PROJECT_DIR",
+            "IMPROVE_DATA_DIR",
+            "IMPROVE_SKILLS_DIR",
+            "SESSION_ID",
+        }
+        f.write(f"\nEnvironment Variables (plugin paths and session metadata):\n")
         for key, value in sorted(os.environ.items()):
-            if 'CLAUDE' in key.upper() or 'SESSION' in key.upper():
+            upper_key = key.upper()
+            if upper_key in safe_environment_keys:
                 f.write(f"  {key}={value}\n")
         f.write(f"{'='*80}\n")

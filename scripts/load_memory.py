@@ -4,7 +4,7 @@ Load memory files at session start for system prompt injection.
 Outputs JSON with additional_context for SessionStart hook.
 
 Based on MemoryStore from memory_tool.py:
-- Memory files live in .claude/memories/
+- Memory files live in the active host's project data directory
 - Separate char limits: memory (2200), user (1375)
 - Frozen snapshot pattern: system prompt is stable across session
 """
@@ -14,6 +14,8 @@ import os
 import sys
 import traceback
 from pathlib import Path
+
+from runtime_paths import get_data_home
 
 # Windows defaults stdout to GBK; force UTF-8 so memory content with non-GBK
 # characters (emoji, box-drawing, etc.) prints without UnicodeEncodeError.
@@ -25,8 +27,8 @@ USER_CHAR_LIMIT = 1375
 
 
 def get_home() -> Path:
-    """Return the project directory ($CLAUDE_PROJECT_DIR/.claude)."""
-    return Path(os.environ.get("CLAUDE_PROJECT_DIR", ".")) / ".claude"
+    """Return the host-aware Improve Toolkit data directory."""
+    return get_data_home()
 
 
 def get_memories_dir() -> Path:

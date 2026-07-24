@@ -30,6 +30,7 @@ import re
 import tempfile
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -48,13 +49,17 @@ except ImportError:
         pass
 
 logger = logging.getLogger(__name__)
+_ACTIVE_DATA_HOME: ContextVar[Optional[Path]] = ContextVar(
+    "improve_memory_data_home",
+    default=None,
+)
 
 
 # ---------------------------------------------------------------------------
 # Diagnostic logging + change audit
 #
 # The MCP server speaks JSON-RPC over stdio, so we cannot log to stdout.
-# Everything goes to a file under $CLAUDE_PROJECT_DIR/.claude/logs/.
+# Everything goes to the active project's host-specific log directory.
 #
 # Two sinks:
 #   - memory_tool.log       : operational trace (lock waits, reloads, writes)
@@ -74,22 +79,29 @@ LOCK_POLL_INTERVAL = 0.1
 
 
 def _log_dir() -> Path:
-    return get_home() / "logs"
+    data_home = _ACTIVE_DATA_HOME.get()
+    return (data_home if data_home is not None else get_home()) / "logs"
 
 
 def _ensure_logger() -> None:
     """Attach a file handler to the module logger (idempotent)."""
-    if getattr(logger, "_fire_configured", False):
+    log_dir = _log_dir().resolve()
+    configured_dirs = getattr(logger, "_fire_configured_dirs", set())
+    if log_dir in configured_dirs:
         return
     try:
-        _log_dir().mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(_log_dir() / "memory_tool.log", encoding="utf-8")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "memory_tool.log", encoding="utf-8")
         handler.setFormatter(
             logging.Formatter("%(asctime)s [%(levelname)s] [pid=%(process)d] %(message)s")
         )
+        handler.addFilter(
+            lambda _record, expected=log_dir: _log_dir().resolve() == expected
+        )
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
-        logger._fire_configured = True  # type: ignore[attr-defined]
+        configured_dirs.add(log_dir)
+        logger._fire_configured_dirs = configured_dirs  # type: ignore[attr-defined]
     except Exception as exc:  # noqa: BLE001 -- never break the tool over logging
         # No handler, so this goes to the root logger's lastResort handler
         # (stderr). Better than crashing.
@@ -122,9 +134,9 @@ def _append_audit(record: Dict[str, Any]) -> None:
 # (get_home() env var changes) are always respected.  The old module-level
 # constant was cached at import time and could go stale if a profile switch
 # happened after the first import.
-def get_memory_dir() -> Path:
+def get_memory_dir(data_home: Optional[Path] = None) -> Path:
     """Return the profile-scoped memories directory."""
-    return get_home() / "memories"
+    return (data_home if data_home is not None else get_home()) / "memories"
 
 
 ENTRY_DELIMITER = "\n§\n"
@@ -216,17 +228,23 @@ class MemoryStore:
         Tool responses always reflect this live state.
     """
 
-    def __init__(self, memory_char_limit: int = 2200, user_char_limit: int = 1375):
+    def __init__(
+        self,
+        memory_char_limit: int = 2200,
+        user_char_limit: int = 1375,
+        data_home: Optional[Path] = None,
+    ):
         self.memory_entries: List[str] = []
         self.user_entries: List[str] = []
         self.memory_char_limit = memory_char_limit
         self.user_char_limit = user_char_limit
+        self.data_home = Path(data_home) if data_home is not None else get_home()
         # Frozen snapshot for system prompt -- set once at load_from_disk()
         self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
 
     def load_from_disk(self):
         """Load entries from MEMORY.md and USER.md, capture system prompt snapshot."""
-        mem_dir = get_memory_dir()
+        mem_dir = get_memory_dir(self.data_home)
         mem_dir.mkdir(parents=True, exist_ok=True)
 
         self.memory_entries = self._read_file(mem_dir / "MEMORY.md")
@@ -348,9 +366,8 @@ class MemoryStore:
             fd.close()
             logger.debug("lock: released %s", lock_path)
 
-    @staticmethod
-    def _path_for(target: str) -> Path:
-        mem_dir = get_memory_dir()
+    def _path_for(self, target: str) -> Path:
+        mem_dir = get_memory_dir(self.data_home)
         if target == "user":
             return mem_dir / "USER.md"
         return mem_dir / "MEMORY.md"
@@ -366,7 +383,7 @@ class MemoryStore:
 
     def save_to_disk(self, target: str):
         """Persist entries to the appropriate file. Called after every mutation."""
-        get_memory_dir().mkdir(parents=True, exist_ok=True)
+        get_memory_dir(self.data_home).mkdir(parents=True, exist_ok=True)
         self._write_file(self._path_for(target), self._entries_for(target))
 
     def _entries_for(self, target: str) -> List[str]:
@@ -772,35 +789,39 @@ def memory_tool(
     if target not in ("memory", "user"):
         return tool_error(f"Invalid target '{target}'. Use 'memory' or 'user'.", success=False)
 
-    _ensure_logger()
-    logger.info("dispatch: action=%s target=%s content_len=%s old_text_len=%s",
-                action, target,
-                len(content) if content else 0,
-                len(old_text) if old_text else 0)
+    token = _ACTIVE_DATA_HOME.set(store.data_home)
+    try:
+        _ensure_logger()
+        logger.info("dispatch: action=%s target=%s content_len=%s old_text_len=%s",
+                    action, target,
+                    len(content) if content else 0,
+                    len(old_text) if old_text else 0)
 
-    if action == "add":
-        if not content:
-            return tool_error("Content is required for 'add' action.", success=False)
-        result = store.add(target, content)
+        if action == "add":
+            if not content:
+                return tool_error("Content is required for 'add' action.", success=False)
+            result = store.add(target, content)
 
-    elif action == "replace":
-        if not old_text:
-            return tool_error("old_text is required for 'replace' action.", success=False)
-        if not content:
-            return tool_error("content is required for 'replace' action.", success=False)
-        result = store.replace(target, old_text, content)
+        elif action == "replace":
+            if not old_text:
+                return tool_error("old_text is required for 'replace' action.", success=False)
+            if not content:
+                return tool_error("content is required for 'replace' action.", success=False)
+            result = store.replace(target, old_text, content)
 
-    elif action == "remove":
-        if not old_text:
-            return tool_error("old_text is required for 'remove' action.", success=False)
-        result = store.remove(target, old_text)
+        elif action == "remove":
+            if not old_text:
+                return tool_error("old_text is required for 'remove' action.", success=False)
+            result = store.remove(target, old_text)
 
-    else:
-        return tool_error(f"Unknown action '{action}'. Use: add, replace, remove", success=False)
+        else:
+            return tool_error(f"Unknown action '{action}'. Use: add, replace, remove", success=False)
 
-    logger.info("dispatch: done action=%s target=%s success=%s",
-                action, target, result.get("success"))
-    return json.dumps(result, ensure_ascii=False)
+        logger.info("dispatch: done action=%s target=%s success=%s",
+                    action, target, result.get("success"))
+        return json.dumps(result, ensure_ascii=False)
+    finally:
+        _ACTIVE_DATA_HOME.reset(token)
 
 
 def check_memory_requirements() -> bool:
@@ -857,6 +878,14 @@ MEMORY_SCHEMA = {
             "old_text": {
                 "type": "string",
                 "description": "Short unique substring identifying the entry to replace or remove."
+            },
+            "project_dir": {
+                "type": "string",
+                "description": (
+                    "Absolute current workspace root. Required when the host is Codex "
+                    "so memory stays project-scoped; Claude Code supplies its project "
+                    "directory through the environment."
+                )
             },
         },
         "required": ["action", "target"],

@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this dual-host
+Codex and Claude Code plugin. Codex uses `AGENTS.md`.
 
 ## MCP Servers
 
@@ -28,7 +29,8 @@ Session lifecycle hooks are defined in `hooks/hooks.json`. Each hook runs via `s
 2. Process (log, persist, transform)
 3. Print JSON result to stdout (consumed by Claude Code)
 
-**Execution order at SessionStart:** `session_context.py` (persona injection) → `load_memory.py` (memory/user profile) → `hook_session_start.py` (DB record).
+At SessionStart, `session_context.py` injects general working guidance and
+`load_memory.py` injects the memory/user profile snapshot.
 
 ### Scripts Layer (`scripts/`)
 
@@ -37,8 +39,9 @@ Pure stdlib Python — no virtualenv needed (unlike `servers/`).
 | Module | Role |
 |---|---|
 | `hook_logger.py` | Shared stdin reader + file logger for all hooks |
-| `session_context.py` | Builds persona prompt with workbench path, emits SessionStart context |
-| `load_memory.py` | Reads `MEMORY.md`/`USER.md` from `.claude/memories/`, renders prompt blocks |
+| `runtime_paths.py` | Resolves project paths for Codex and Claude Code |
+| `session_context.py` | Builds the shared agent prompt with workbench path, emits SessionStart context |
+| `load_memory.py` | Reads host-specific `MEMORY.md`/`USER.md` files and renders prompt blocks |
 
 ### Data Flow
 
@@ -46,11 +49,14 @@ Pure stdlib Python — no virtualenv needed (unlike `servers/`).
 hooks.json → run_hook → hook script → session_context.py (persona) → load_memory.py (memories)
 ```
 
-Memory files live in `.claude/memories/` (MEMORY.md, USER.md), separated by `§` delimiter.
+Claude memory files live in `.claude/memories/`; Codex memory files live in
+`.codex/improve-toolkit/memories/`. `MEMORY.md` and `USER.md` use `§` as the
+entry delimiter.
 
 ### Plugin Structure
 
 - `.claude-plugin/` — Plugin metadata and MCP server config
+- `.codex-plugin/` and `.mcp.json` — Codex plugin metadata and MCP config
 - `servers/` — MCP server (has its own `.venv`, `pyproject.toml`)
 - `scripts/` — Hook scripts and utilities (stdlib only, no venv)
 - `scripts/tests/` — Unit tests (stdlib, run individually or via `run_tests.py`)

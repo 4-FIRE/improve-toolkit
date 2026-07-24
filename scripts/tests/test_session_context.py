@@ -18,12 +18,24 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parent.parent / "session_context.py"
 
 
-def run_hook(workdir: Path) -> dict:
-    """Run session_context.py with CLAUDE_PROJECT_DIR=workdir, return parsed JSON."""
+def run_hook(workdir: Path, host: str = "claude") -> dict:
+    """Run session_context.py for a host and return parsed JSON."""
     env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = str(workdir)
+    for key in (
+        "PLUGIN_ROOT",
+        "IMPROVE_HOST",
+        "IMPROVE_PROJECT_DIR",
+        "IMPROVE_DATA_DIR",
+    ):
+        env.pop(key, None)
+    if host == "codex":
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env["PLUGIN_ROOT"] = str(SCRIPT.parent.parent)
+    else:
+        env["CLAUDE_PROJECT_DIR"] = str(workdir)
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
+        cwd=workdir,
         env=env,
         capture_output=True,
         text=True,
@@ -49,6 +61,11 @@ def test_no_legacy_tmp_references():
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
+        # The resolved workbench itself normally lives under the OS temp
+        # directory in this test. Remove that valid dynamic path before
+        # checking for old hard-coded /tmp guidance.
+        workbench = str((workdir / ".claude" / "workbench").resolve())
+        context = context.replace(workbench, "<WORKBENCH>")
         # The three former /tmp references must be gone.
         for legacy in ("/tmp/<task>.py", "JSON files in /tmp", "python /tmp/"):
             assert legacy not in context, f"legacy /tmp reference still present: {legacy!r}"
@@ -72,10 +89,24 @@ def test_workbench_path_appears_in_run_guidance():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def test_codex_workbench_dir_created():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_codex_test_"))
+    try:
+        data = run_hook(workdir, host="codex")
+        context = data["hookSpecificOutput"]["additionalContext"]
+        expected_dir = workdir / ".codex" / "improve-toolkit" / "workbench"
+        assert str(expected_dir.resolve()) in context
+        assert expected_dir.is_dir()
+        assert "Claude Code Persona" not in context
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 ALL_TESTS = [
     test_workbench_dir_created_and_path_in_context,
     test_no_legacy_tmp_references,
     test_workbench_path_appears_in_run_guidance,
+    test_codex_workbench_dir_created,
 ]
 
 

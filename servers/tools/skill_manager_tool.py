@@ -3,9 +3,9 @@
 Skill Manager Tool -- Agent-Managed Skill Creation & Editing
 
 Allows the agent to create, update, and delete skills, turning successful
-approaches into reusable procedural knowledge. New skills are created in
-.claude/skills/. Existing skills (bundled, hub-installed, or user-created)
-can be modified or deleted wherever they live.
+approaches into reusable procedural knowledge. New skills are created in the
+active host's project skill directory. Existing user-created skills can be
+modified or deleted there.
 
 Skills are the agent's procedural memory: they capture *how to do a specific
 type of task* based on proven experience. General memory (MEMORY.md, USER.md) is
@@ -20,7 +20,7 @@ Actions:
   remove_file-- Remove a supporting file from a user skill
 
 Directory layout for user skills:
-    .claude/skills/
+    <host skill directory>/
     ├── my-skill/
     │   ├── SKILL.md
     │   ├── references/
@@ -43,25 +43,22 @@ from typing import Dict, Any, Optional, Tuple
 
 import yaml
 
-from .utils import atomic_replace, tool_error, get_home
+from .utils import atomic_replace, tool_error, get_skills_dir
 
 logger = logging.getLogger(__name__)
 
-
-# All skills live in .claude/skills/ (single source of truth)
-SKILLS_DIR = get_home() / "skills"
 
 MAX_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
 
 
-def _is_local_skill(skill_path: Path) -> bool:
-    """Check if a skill path is within the local SKILLS_DIR.
+def _is_local_skill(skill_path: Path, skills_dir: Path) -> bool:
+    """Check if a skill path is within the active local skills directory.
 
     Skills found in external_dirs are read-only from the agent's perspective.
     """
     try:
-        skill_path.resolve().relative_to(SKILLS_DIR.resolve())
+        skill_path.resolve().relative_to(skills_dir.resolve())
         return True
     except ValueError:
         return False
@@ -148,22 +145,21 @@ def _validate_content_size(content: str, label: str = "SKILL.md") -> Optional[st
     return None
 
 
-def _resolve_skill_dir(name: str) -> Path:
+def _resolve_skill_dir(name: str, skills_dir: Path) -> Path:
     """Build the directory path for a new skill."""
-    return SKILLS_DIR / name
+    return skills_dir / name
 
 
-def _find_skill(name: str) -> Optional[Dict[str, Any]]:
+def _find_skill(name: str, skills_dir: Path) -> Optional[Dict[str, Any]]:
     """
     Find a skill by name across all skill directories.
 
-    Searches the local skills dir (.claude/skills/) first, then any
-    external dirs configured via skills.external_dirs.  Returns
+    Searches the active host's project skill directory and returns
     {"path": Path} or None.
     """
-    if not SKILLS_DIR.exists():
+    if not skills_dir.exists():
         return None
-    for skill_md in SKILLS_DIR.rglob("SKILL.md"):
+    for skill_md in skills_dir.rglob("SKILL.md"):
         if skill_md.parent.name == name:
             return {"path": skill_md.parent}
     return None
@@ -244,7 +240,7 @@ def _atomic_write_text(file_path: Path, content: str, encoding: str = "utf-8") -
 # Core actions
 # =============================================================================
 
-def _create_skill(name: str, content: str) -> Dict[str, Any]:
+def _create_skill(name: str, content: str, skills_dir: Path) -> Dict[str, Any]:
     """Create a new user skill with SKILL.md content."""
     # Validate name
     err = _validate_name(name)
@@ -261,7 +257,7 @@ def _create_skill(name: str, content: str) -> Dict[str, Any]:
         return {"success": False, "error": err}
 
     # Check for name collisions across all directories
-    existing = _find_skill(name)
+    existing = _find_skill(name, skills_dir)
     if existing:
         return {
             "success": False,
@@ -269,7 +265,7 @@ def _create_skill(name: str, content: str) -> Dict[str, Any]:
         }
 
     # Create the skill directory
-    skill_dir = _resolve_skill_dir(name)
+    skill_dir = _resolve_skill_dir(name, skills_dir)
     skill_dir.mkdir(parents=True, exist_ok=True)
 
     # Write SKILL.md atomically
@@ -279,7 +275,7 @@ def _create_skill(name: str, content: str) -> Dict[str, Any]:
     result = {
         "success": True,
         "message": f"Skill '{name}' created.",
-        "path": str(skill_dir.relative_to(SKILLS_DIR)),
+        "path": str(skill_dir.relative_to(skills_dir)),
         "skill_md": str(skill_md),
     }
     result["hint"] = (
@@ -289,7 +285,7 @@ def _create_skill(name: str, content: str) -> Dict[str, Any]:
     return result
 
 
-def _edit_skill(name: str, content: str) -> Dict[str, Any]:
+def _edit_skill(name: str, content: str, skills_dir: Path) -> Dict[str, Any]:
     """Replace the SKILL.md of any existing skill (full rewrite)."""
     err = _validate_frontmatter(content)
     if err:
@@ -299,11 +295,11 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
     if err:
         return {"success": False, "error": err}
 
-    existing = _find_skill(name)
+    existing = _find_skill(name, skills_dir)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found. Use skills_list() to see available skills."}
 
-    if not _is_local_skill(existing["path"]):
+    if not _is_local_skill(existing["path"], skills_dir):
         return {"success": False, "error": f"Skill '{name}' is in an external directory and cannot be modified. Copy it to your local skills directory first."}
 
     skill_md = existing["path"] / "SKILL.md"
@@ -320,6 +316,7 @@ def _patch_skill(
     name: str,
     old_string: str,
     new_string: str,
+    skills_dir: Path,
     file_path: str = None,
     replace_all: bool = False,
 ) -> Dict[str, Any]:
@@ -333,11 +330,11 @@ def _patch_skill(
     if new_string is None:
         return {"success": False, "error": "new_string is required for 'patch'. Use an empty string to delete matched text."}
 
-    existing = _find_skill(name)
+    existing = _find_skill(name, skills_dir)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found."}
 
-    if not _is_local_skill(existing["path"]):
+    if not _is_local_skill(existing["path"], skills_dir):
         return {"success": False, "error": f"Skill '{name}' is in an external directory and cannot be modified. Copy it to your local skills directory first."}
 
     skill_dir = existing["path"]
@@ -406,13 +403,13 @@ def _patch_skill(
     }
 
 
-def _delete_skill(name: str) -> Dict[str, Any]:
+def _delete_skill(name: str, skills_dir: Path) -> Dict[str, Any]:
     """Delete a skill."""
-    existing = _find_skill(name)
+    existing = _find_skill(name, skills_dir)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found."}
 
-    if not _is_local_skill(existing["path"]):
+    if not _is_local_skill(existing["path"], skills_dir):
         return {"success": False, "error": f"Skill '{name}' is in an external directory and cannot be deleted."}
 
     skill_dir = existing["path"]
@@ -424,7 +421,12 @@ def _delete_skill(name: str) -> Dict[str, Any]:
     }
 
 
-def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
+def _write_file(
+    name: str,
+    file_path: str,
+    file_content: str,
+    skills_dir: Path,
+) -> Dict[str, Any]:
     """Add or overwrite a supporting file within any skill directory."""
     err = _validate_file_path(file_path)
     if err:
@@ -448,11 +450,11 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
     if err:
         return {"success": False, "error": err}
 
-    existing = _find_skill(name)
+    existing = _find_skill(name, skills_dir)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found. Create it first with action='create'."}
 
-    if not _is_local_skill(existing["path"]):
+    if not _is_local_skill(existing["path"], skills_dir):
         return {"success": False, "error": f"Skill '{name}' is in an external directory and cannot be modified. Copy it to your local skills directory first."}
 
     target, err = _resolve_skill_target(existing["path"], file_path)
@@ -468,17 +470,17 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
     }
 
 
-def _remove_file(name: str, file_path: str) -> Dict[str, Any]:
+def _remove_file(name: str, file_path: str, skills_dir: Path) -> Dict[str, Any]:
     """Remove a supporting file from any skill directory."""
     err = _validate_file_path(file_path)
     if err:
         return {"success": False, "error": err}
 
-    existing = _find_skill(name)
+    existing = _find_skill(name, skills_dir)
     if not existing:
         return {"success": False, "error": f"Skill '{name}' not found."}
 
-    if not _is_local_skill(existing["path"]):
+    if not _is_local_skill(existing["path"], skills_dir):
         return {"success": False, "error": f"Skill '{name}' is in an external directory and cannot be modified."}
 
     skill_dir = existing["path"]
@@ -527,43 +529,53 @@ def skill_manage(
     old_string: str = None,
     new_string: str = None,
     replace_all: bool = False,
+    skills_dir: Optional[Path] = None,
 ) -> str:
     """
     Manage user-created skills. Dispatches to the appropriate action handler.
 
     Returns JSON string with results.
     """
+    skills_dir = Path(skills_dir) if skills_dir is not None else get_skills_dir()
+
     if action == "create":
         if not content:
             return tool_error("content is required for 'create'. Provide the full SKILL.md text (frontmatter + body).", success=False)
-        result = _create_skill(name, content)
+        result = _create_skill(name, content, skills_dir)
 
     elif action == "edit":
         if not content:
             return tool_error("content is required for 'edit'. Provide the full updated SKILL.md text.", success=False)
-        result = _edit_skill(name, content)
+        result = _edit_skill(name, content, skills_dir)
 
     elif action == "patch":
         if not old_string:
             return tool_error("old_string is required for 'patch'. Provide the text to find.", success=False)
         if new_string is None:
             return tool_error("new_string is required for 'patch'. Use empty string to delete matched text.", success=False)
-        result = _patch_skill(name, old_string, new_string, file_path, replace_all)
+        result = _patch_skill(
+            name,
+            old_string,
+            new_string,
+            skills_dir,
+            file_path,
+            replace_all,
+        )
 
     elif action == "delete":
-        result = _delete_skill(name)
+        result = _delete_skill(name, skills_dir)
 
     elif action == "write_file":
         if not file_path:
             return tool_error("file_path is required for 'write_file'. Example: 'references/api-guide.md'", success=False)
         if file_content is None:
             return tool_error("file_content is required for 'write_file'.", success=False)
-        result = _write_file(name, file_path, file_content)
+        result = _write_file(name, file_path, file_content, skills_dir)
 
     elif action == "remove_file":
         if not file_path:
             return tool_error("file_path is required for 'remove_file'.", success=False)
-        result = _remove_file(name, file_path)
+        result = _remove_file(name, file_path, skills_dir)
 
     else:
         result = {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file"}
@@ -580,7 +592,8 @@ SKILL_MANAGE_SCHEMA = {
     "description": (
         "Manage skills (create, update, delete). Skills are your procedural "
         "memory — reusable approaches for recurring task types. "
-        f"New skills go to {get_home()}/skills/; existing skills can be modified wherever they live.\n\n"
+        "New skills go to the active project's host-native skill directory; "
+        "existing skills there can be modified.\n\n"
         "Actions: create (full SKILL.md), "
         "patch (old_string/new_string — preferred for fixes), "
         "edit (full SKILL.md rewrite — major overhauls only), "
@@ -651,6 +664,14 @@ SKILL_MANAGE_SCHEMA = {
             "file_content": {
                 "type": "string",
                 "description": "Content for the file. Required for 'write_file'."
+            },
+            "project_dir": {
+                "type": "string",
+                "description": (
+                    "Absolute current workspace root. Required when the host is Codex "
+                    "so skills are written to that project's .agents/skills directory; "
+                    "Claude Code supplies its project directory through the environment."
+                )
             },
         },
         "required": ["action", "name"],

@@ -173,6 +173,30 @@ def test_log_hook_data_preserves_todays_log():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def test_log_hook_data_excludes_secret_environment_values():
+    """Hook diagnostics log known paths, but not API keys or session tokens."""
+    workdir = Path(tempfile.mkdtemp(prefix="hl_test_"))
+    try:
+        env = {
+            "CLAUDE_PROJECT_DIR": str(workdir),
+            "CODEX_API_KEY": "codex-secret",
+            "AWS_SESSION_TOKEN": "aws-secret",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            log_hook_data("SafeEnvHook", {})
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        log_file = (
+            workdir / ".claude" / "logs" / f"hook_SafeEnvHook_{today}.log"
+        )
+        content = log_file.read_text(encoding="utf-8")
+        assert f"CLAUDE_PROJECT_DIR={workdir}" in content
+        assert "codex-secret" not in content
+        assert "aws-secret" not in content
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -186,6 +210,7 @@ ALL_TESTS = [
     test_log_hook_data_creates_file,
     test_log_hook_data_cleans_old_logs,
     test_log_hook_data_preserves_todays_log,
+    test_log_hook_data_excludes_secret_environment_values,
 ]
 
 

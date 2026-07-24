@@ -58,9 +58,9 @@ logs/
 
 # Memory files (persistent context)
 .improve-toolkit/
+.codex/improve-toolkit/
 
 .claude/sessions/
 .claude/logs/
 .claude/skills/
 .claude/workbench/
-

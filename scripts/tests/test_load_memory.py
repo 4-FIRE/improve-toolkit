@@ -144,12 +144,24 @@ def test_render_block_separator():
 # main (subprocess)
 # ---------------------------------------------------------------------------
 
-def run_load_memory(workdir: Path) -> dict:
+def run_load_memory(workdir: Path, host: str = "claude") -> dict:
     """Run load_memory.py as subprocess, return parsed JSON."""
     env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = str(workdir)
+    for key in (
+        "PLUGIN_ROOT",
+        "IMPROVE_HOST",
+        "IMPROVE_PROJECT_DIR",
+        "IMPROVE_DATA_DIR",
+    ):
+        env.pop(key, None)
+    if host == "codex":
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        env["PLUGIN_ROOT"] = str(SCRIPT.parent.parent)
+    else:
+        env["CLAUDE_PROJECT_DIR"] = str(workdir)
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
+        cwd=workdir,
         env=env,
         capture_output=True,
         text=True,
@@ -230,6 +242,21 @@ def test_main_with_both_files():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def test_main_with_codex_memory_file():
+    """Codex loads project memory from .codex/improve-toolkit/memories."""
+    workdir = Path(tempfile.mkdtemp(prefix="lm_codex_test_"))
+    try:
+        mem_dir = workdir / ".codex" / "improve-toolkit" / "memories"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "MEMORY.md").write_text("codex project fact")
+
+        data = run_load_memory(workdir, host="codex")
+        ctx = data["hookSpecificOutput"]["additionalContext"]
+        assert "codex project fact" in ctx
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -252,6 +279,7 @@ ALL_TESTS = [
     test_main_with_memory_file,
     test_main_with_user_file,
     test_main_with_both_files,
+    test_main_with_codex_memory_file,
 ]
 
 

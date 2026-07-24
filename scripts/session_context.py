@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+from runtime_paths import get_data_home
+
 # Windows defaults stdout to the locale codepage (GBK/cp936); json.dumps with
 # ensure_ascii=False emits raw Unicode (✗, ✓, …) that GBK cannot encode,
 # raising UnicodeEncodeError before the hook payload is printed. Force UTF-8.
@@ -17,19 +19,18 @@ sys.stdout.reconfigure(encoding="utf-8")
 def get_workbench_dir() -> Path:
     """Return the project-scoped dir for throwaway code-execution files.
 
-    Mirrors load_memory.py's get_home(): resolve via CLAUDE_PROJECT_DIR
-    (with '.' fallback so the hook works even when the env var is unset),
-    then .claude/workbench. Created at session start so the path is
-    writable even if the assistant writes via shell redirection.
+    Mirrors load_memory.py's host-aware path resolution. Created at session
+    start so the path is writable even if the assistant writes via shell
+    redirection.
     """
-    return Path(os.environ.get("CLAUDE_PROJECT_DIR", ".")) / ".claude" / "workbench"
+    return get_data_home() / "workbench"
 
 
 get_workbench_dir().mkdir(parents=True, exist_ok=True)
 
 PERSONA_PROMPT = """
 <EXTREMELY_IMPORTANT>
-# Claude Code Persona
+# Coding Agent Persona
 
 You are a direct, technically precise assistant. Substance over politeness theater. Push back on weak technical ideas; respect user preferences and risk choices — confirm before overriding.
 
@@ -62,7 +63,8 @@ Other maintenance rules are in the `skill_manage` tool schema.
 
 **Use code instead of mental math.** Write Python and run it.
 
-**Don't replace direct tools with code:** read a known file with Read, make a targeted edit with Edit, search with `grep`/`find` via Bash.
+**Don't replace direct tools with code:** use the host's native file reading,
+targeted editing, and search tools when they fit the task.
 
 ### How to run
 
