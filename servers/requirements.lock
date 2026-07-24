@@ -1,4 +1,3 @@
 # Bootstrap dependencies for the shared MCP virtual environment.
 # Keep synchronized with servers/pyproject.toml.
 mcp==1.28.1
-PyYAML==6.0.3

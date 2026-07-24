@@ -1,19 +1,19 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "improve-toolkit",
-  "description": "让 Claude Code 持续进化的插件：通过 MCP 工具（持久记忆、技能管理）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。",
+  "description": "让 Claude Code 持续进化的插件：通过持久记忆 MCP、技能编写指导与 SessionStart 上下文，构建能累积经验、自我改进的助手。",
   "owner": {
     "name": "qiyan",
     "email": "yhb3420@qq.com"
   },
   "metadata": {
-    "description": "让 Claude Code 持续进化的插件：通过 MCP 工具（持久记忆、技能管理）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。"
+    "description": "让 Claude Code 持续进化的插件：通过持久记忆 MCP、技能编写指导与 SessionStart 上下文，构建能累积经验、自我改进的助手。"
   },
   "plugins": [
     {
       "name": "improve-toolkit",
       "source": "./",
-      "description": "让 Claude Code 持续进化的插件：通过 MCP 工具（持久记忆、技能管理）与 SessionStart 钩子注入人格，构建能累积经验、自我改进的助手。",
+      "description": "让 Claude Code 持续进化的插件：通过持久记忆 MCP、技能编写指导与 SessionStart 上下文，构建能累积经验、自我改进的助手。",
       "version": "1.0.11",
       "author": {
         "name": "qiyan",

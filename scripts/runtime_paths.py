@@ -105,16 +105,3 @@ def get_legacy_memories_dirs(project_dir: Path | str | None = None) -> tuple[Pat
         project_dir / ".claude" / "memories",
         project_dir / ".codex" / "improve-toolkit" / "memories",
     )
-
-
-def get_skills_dir(project_dir: Path | str | None = None) -> Path:
-    """Return the writable skill directory discovered by the active host."""
-    override = _path_from_env("IMPROVE_SKILLS_DIR")
-    if override is not None:
-        return override
-
-    if get_host() == "codex":
-        project_dir = Path(project_dir).expanduser() if project_dir is not None else get_project_dir()
-        return project_dir / ".agents" / "skills"
-    project_dir = Path(project_dir).expanduser() if project_dir is not None else get_project_dir()
-    return project_dir / ".claude" / "skills"

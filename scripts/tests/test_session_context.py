@@ -106,11 +106,46 @@ def test_codex_workbench_dir_created():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def test_skill_proposals_require_user_authorization():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_skills_test_"))
+    try:
+        data = run_hook(workdir)
+        context = data["hookSpecificOutput"]["additionalContext"]
+        assert "you may propose at most one skill" in context
+        assert "until the user asks or accepts" in context
+        assert "only at the proposed path" in context
+        assert "Load `improve`" in context
+        assert "writing-great-skills" in context
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_import_has_no_runtime_side_effects():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_import_test_"))
+    try:
+        env = dict(os.environ)
+        env["CLAUDE_PROJECT_DIR"] = str(workdir)
+        result = subprocess.run(
+            [sys.executable, "-c", f"import sys; sys.path.insert(0, {str(SCRIPT.parent)!r}); import session_context"],
+            cwd=workdir,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout == ""
+        assert not (workdir / ".improve-toolkit").exists()
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 ALL_TESTS = [
     test_workbench_dir_created_and_path_in_context,
     test_no_legacy_tmp_references,
     test_workbench_path_appears_in_run_guidance,
     test_codex_workbench_dir_created,
+    test_skill_proposals_require_user_authorization,
+    test_import_has_no_runtime_side_effects,
 ]
 
 

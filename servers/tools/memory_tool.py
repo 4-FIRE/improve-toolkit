@@ -17,7 +17,7 @@ Entry delimiter: § (section sign). Entries can be multiline.
 Character limits (not tokens) because char counts are model-independent.
 
 Design:
-- Single `memory` tool with action parameter: add, replace, remove, read
+- Single `memory` tool with action parameter: add, replace, remove
 - replace/remove use short unique substring matching (not full text or IDs)
 - Behavioral guidance lives in the tool schema description
 - Frozen snapshot pattern: system prompt is stable, tool responses show live state
@@ -27,26 +27,22 @@ import json
 import logging
 import os
 import re
-import tempfile
 import time
-from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-from .utils import atomic_replace, tool_error, get_home
+from file_ops import atomic_write_text, file_lock
+from memory_format import (
+    char_count as memory_char_count,
+    deduplicate_entries,
+    join_entries,
+    render_block,
+    split_entries,
+)
 
-# fcntl is Unix-only; on Windows use msvcrt for file locking
-msvcrt = None
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-    try:
-        import msvcrt
-    except ImportError:
-        pass
+from .utils import tool_error, get_home
 
 logger = logging.getLogger(__name__)
 _ACTIVE_DATA_HOME: ContextVar[Optional[Path]] = ContextVar(
@@ -135,10 +131,6 @@ def _append_audit(record: Dict[str, Any]) -> None:
 def get_memory_dir(data_home: Optional[Path] = None) -> Path:
     """Return the memories child of a runtime data directory."""
     return (data_home if data_home is not None else get_home()) / "memories"
-
-
-ENTRY_DELIMITER = "\n§\n"
-
 
 # ---------------------------------------------------------------------------
 # Memory content scanning — lightweight check for injection/exfiltration
@@ -255,120 +247,35 @@ class MemoryStore:
         self.user_entries = self._read_file(mem_dir / "USER.md")
 
         # Deduplicate entries (preserves order, keeps first occurrence)
-        self.memory_entries = list(dict.fromkeys(self.memory_entries))
-        self.user_entries = list(dict.fromkeys(self.user_entries))
+        self.memory_entries = deduplicate_entries(self.memory_entries)
+        self.user_entries = deduplicate_entries(self.user_entries)
 
         # Capture frozen snapshot for system prompt injection
         self._system_prompt_snapshot = {
-            "memory": self._render_block("memory", self.memory_entries),
-            "user": self._render_block("user", self.user_entries),
+            "memory": render_block(
+                "memory",
+                self.memory_entries,
+                limit=self.memory_char_limit,
+            ),
+            "user": render_block(
+                "user",
+                self.user_entries,
+                limit=self.user_char_limit,
+            ),
         }
 
     @staticmethod
-    @contextmanager
     def _file_lock(path: Path):
-        """Acquire an exclusive file lock for read-modify-write safety.
-
-        Uses a separate .lock file so the memory file itself can still be
-        atomically replaced via os.replace().
-
-        Acquisition is non-blocking with a bounded retry loop (LOCK_TIMEOUT_SECONDS).
-        Blocking flock() would hang forever if a peer process died holding the
-        lock or the lock got wedged -- the most likely cause of "add/replace
-        卡住". Every wait and the final outcome is logged so a stuck call
-        leaves a clear trail in memory_tool.log.
-        """
+        """Return the shared sibling-lock context for a memory mutation."""
         _ensure_logger()
         lock_path = path.with_suffix(path.suffix + ".lock")
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if fcntl is None and msvcrt is None:
-            logger.debug("lock: no fcntl/msvcrt available, yielding unlocked for %s", path)
-            yield
-            return
-
-        if msvcrt and (not lock_path.exists() or lock_path.stat().st_size == 0):
-            lock_path.write_text(" ", encoding="utf-8")
-
-        fd = open(lock_path, "r+" if msvcrt else "a+")
-        acquired = False
-        wait_start = time.monotonic()
-        try:
-            if fcntl:
-                deadline = wait_start + LOCK_TIMEOUT_SECONDS
-                attempt = 0
-                while True:
-                    try:
-                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        acquired = True
-                        break
-                    except (OSError, IOError):
-                        remaining = deadline - time.monotonic()
-                        attempt += 1
-                        if remaining <= 0:
-                            waited = time.monotonic() - wait_start
-                            logger.error(
-                                "lock: TIMEOUT after %.1fs (%d attempts) waiting on %s",
-                                waited, attempt, lock_path,
-                            )
-                            raise TimeoutError(
-                                f"Could not acquire memory lock on {lock_path} "
-                                f"within {LOCK_TIMEOUT_SECONDS:.0f}s. Another process "
-                                f"may be stuck holding it -- see memory_tool.log."
-                            )
-                        # Log the first wait and then every ~1s so a long
-                        # stall is visible without flooding the log.
-                        if attempt == 1 or attempt % int(1.0 / LOCK_POLL_INTERVAL) == 0:
-                            logger.warning(
-                                "lock: waiting on %s (%.1fs left, attempt %d)",
-                                lock_path, remaining, attempt,
-                            )
-                        time.sleep(min(LOCK_POLL_INTERVAL, remaining))
-                logger.debug(
-                    "lock: acquired %s after %d attempt(s) in %.2fs",
-                    lock_path, attempt, time.monotonic() - wait_start,
-                )
-            else:
-                # msvcrt.locking blocks; emulate the timeout via retries.
-                deadline = wait_start + LOCK_TIMEOUT_SECONDS
-                attempt = 0
-                while True:
-                    try:
-                        fd.seek(0)
-                        msvcrt.locking(fd.fileno(), msvcrt.LK_NBLCK, 1)
-                        acquired = True
-                        break
-                    except OSError:
-                        remaining = deadline - time.monotonic()
-                        attempt += 1
-                        if remaining <= 0:
-                            logger.error(
-                                "lock: TIMEOUT (msvcrt) after %.1fs waiting on %s",
-                                time.monotonic() - wait_start, lock_path,
-                            )
-                            raise TimeoutError(
-                                f"Could not acquire memory lock on {lock_path} "
-                                f"within {LOCK_TIMEOUT_SECONDS:.0f}s."
-                            )
-                        if attempt == 1 or attempt % int(1.0 / LOCK_POLL_INTERVAL) == 0:
-                            logger.warning(
-                                "lock: waiting (msvcrt) on %s (%.1fs left, attempt %d)",
-                                lock_path, remaining, attempt,
-                            )
-                        time.sleep(min(LOCK_POLL_INTERVAL, remaining))
-                logger.debug("lock: acquired (msvcrt) %s", lock_path)
-            yield
-        finally:
-            if acquired and fcntl:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            elif acquired and msvcrt:
-                try:
-                    fd.seek(0)
-                    msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)
-                except (OSError, IOError):
-                    pass
-            fd.close()
-            logger.debug("lock: released %s", lock_path)
+        return file_lock(
+            lock_path,
+            timeout=LOCK_TIMEOUT_SECONDS,
+            poll_interval=LOCK_POLL_INTERVAL,
+            logger=logger,
+            description=f"memory lock {lock_path}",
+        )
 
     def _path_for(self, target: str) -> Path:
         if target == "user":
@@ -381,7 +288,7 @@ class MemoryStore:
         Called under file lock to get the latest state before mutating.
         """
         fresh = self._read_file(self._path_for(target))
-        fresh = list(dict.fromkeys(fresh))  # deduplicate
+        fresh = deduplicate_entries(fresh)
         self._set_entries(target, fresh)
 
     def save_to_disk(self, target: str):
@@ -401,10 +308,7 @@ class MemoryStore:
             self.memory_entries = entries
 
     def _char_count(self, target: str) -> int:
-        entries = self._entries_for(target)
-        if not entries:
-            return 0
-        return len(ENTRY_DELIMITER.join(entries))
+        return memory_char_count(self._entries_for(target))
 
     def _char_limit(self, target: str) -> int:
         if target == "user":
@@ -447,7 +351,7 @@ class MemoryStore:
 
                 # Calculate what the new total would be
                 new_entries = entries + [content]
-                new_total = len(ENTRY_DELIMITER.join(new_entries))
+                new_total = memory_char_count(new_entries)
 
                 if new_total > limit:
                     current = self._char_count(target)
@@ -554,7 +458,7 @@ class MemoryStore:
                 # Check that replacement doesn't blow the budget
                 test_entries = entries.copy()
                 test_entries[idx] = new_content
-                new_total = len(ENTRY_DELIMITER.join(test_entries))
+                new_total = memory_char_count(test_entries)
 
                 if new_total > limit:
                     logger.info("replace: over limit (target=%s %d/%d)", target, new_total, limit)
@@ -692,24 +596,6 @@ class MemoryStore:
             resp["message"] = message
         return resp
 
-    def _render_block(self, target: str, entries: List[str]) -> str:
-        """Render a system prompt block with header and usage indicator."""
-        if not entries:
-            return ""
-
-        limit = self._char_limit(target)
-        content = ENTRY_DELIMITER.join(entries)
-        current = len(content)
-        pct = min(100, int((current / limit) * 100)) if limit > 0 else 0
-
-        if target == "user":
-            header = f"USER PROFILE (who the user is) [{pct}% — {current:,}/{limit:,} chars]"
-        else:
-            header = f"MEMORY (your personal notes) [{pct}% — {current:,}/{limit:,} chars]"
-
-        separator = "═" * 46
-        return f"{separator}\n{header}\n{separator}\n{content}"
-
     @staticmethod
     def _read_file(path: Path) -> List[str]:
         """Read a memory file and split into entries.
@@ -727,10 +613,7 @@ class MemoryStore:
         if not raw.strip():
             return []
 
-        # Use ENTRY_DELIMITER for consistency with _write_file. Splitting by "§"
-        # alone would incorrectly split entries that contain "§" in their content.
-        entries = [e.strip() for e in raw.split(ENTRY_DELIMITER)]
-        return [e for e in entries if e]
+        return split_entries(raw)
 
     @staticmethod
     def _write_file(path: Path, entries: List[str]):
@@ -742,32 +625,21 @@ class MemoryStore:
         readers always see either the old complete file or the new one.
         """
         _ensure_logger()
-        content = ENTRY_DELIMITER.join(entries) if entries else ""
+        content = join_entries(entries)
         t0 = time.monotonic()
         try:
-            # Write to temp file in same directory (same filesystem for atomic rename)
-            logger.debug("write: mkstemp target=%s entries=%d bytes=%d",
-                         path, len(entries), len(content))
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(path.parent), suffix=".tmp", prefix=".mem_"
+            logger.debug(
+                "write: atomic target=%s entries=%d chars=%d",
+                path,
+                len(entries),
+                len(content),
             )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(content)
-                    f.flush()
-                    os.fsync(f.fileno())
-                logger.debug("write: fsync done target=%s tmp=%s (%.2fs)",
-                             path, tmp_path, time.monotonic() - t0)
-                atomic_replace(tmp_path, path)
-                logger.debug("write: atomic_replace done target=%s (%.2fs total)",
-                             path, time.monotonic() - t0)
-            except BaseException:
-                # Clean up temp file on any failure
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
+            atomic_write_text(path, content, temp_prefix=".mem_")
+            logger.debug(
+                "write: atomic replace done target=%s (%.2fs total)",
+                path,
+                time.monotonic() - t0,
+            )
         except (OSError, IOError) as e:
             logger.error("write: FAILED target=%s after %.2fs: %s",
                          path, time.monotonic() - t0, e)
@@ -853,8 +725,10 @@ MEMORY_SCHEMA = {
         "The most valuable memory prevents the user from having to repeat themselves.\n\n"
         "Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO "
         "state to memory.\n"
-        "If you've discovered a new way to do something, solved a problem that could be "
-        "necessary later, save it as a skill with skill_manage.\n\n"
+        "Do not store procedures or step-by-step workflows as memory. You may propose a "
+        "skill for a validated, non-obvious, reusable workflow, but write it only after "
+        "the user asks or accepts the concrete proposal. Then use writing-great-skills "
+        "and the host's native file tools.\n\n"
         "TWO TARGETS:\n"
         "- 'user': who the user is -- name, role, preferences, communication style, pet peeves\n"
         "- 'memory': your notes -- environment facts, project conventions, tool quirks, lessons learned\n\n"

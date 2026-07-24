@@ -14,15 +14,12 @@ import sys
 import traceback
 from pathlib import Path
 
+from memory_format import (
+    deduplicate_entries,
+    render_block,
+    split_entries,
+)
 from memory_migration import prepare_memories_dir
-
-# Windows defaults stdout to GBK; force UTF-8 so memory content with non-GBK
-# characters (emoji, box-drawing, etc.) prints without UnicodeEncodeError.
-sys.stdout.reconfigure(encoding="utf-8")
-
-ENTRY_DELIMITER = "\n§\n"
-MEMORY_CHAR_LIMIT = 2200
-USER_CHAR_LIMIT = 1375
 
 
 def get_memories_dir() -> Path:
@@ -42,30 +39,15 @@ def read_entries(path: Path) -> list[str]:
     if not raw.strip():
         return []
 
-    entries = [e.strip() for e in raw.split(ENTRY_DELIMITER)]
-    return [e for e in entries if e]
-
-
-def render_block(target: str, entries: list[str]) -> str:
-    """Render a system prompt block with header and usage indicator."""
-    if not entries:
-        return ""
-
-    limit = MEMORY_CHAR_LIMIT if target == "memory" else USER_CHAR_LIMIT
-    content = ENTRY_DELIMITER.join(entries)
-    current = len(content)
-    pct = min(100, int((current / limit) * 100)) if limit > 0 else 0
-
-    if target == "user":
-        header = f"USER PROFILE (who the user is) [{pct}% — {current:,}/{limit:,} chars]"
-    else:
-        header = f"MEMORY (your personal notes) [{pct}% — {current:,}/{limit:,} chars]"
-
-    separator = "═" * 46
-    return f"{separator}\n{header}\n{separator}\n{content}"
+    return split_entries(raw)
 
 
 def main():
+    # Windows defaults stdout to GBK; force UTF-8 when the stream supports it.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
+
     memories_dir = get_memories_dir()
 
     memory_path = memories_dir / "MEMORY.md"
@@ -74,8 +56,8 @@ def main():
     memory_entries = read_entries(memory_path)
     user_entries = read_entries(user_path)
 
-    memory_entries = list(dict.fromkeys(memory_entries))
-    user_entries = list(dict.fromkeys(user_entries))
+    memory_entries = deduplicate_entries(memory_entries)
+    user_entries = deduplicate_entries(user_entries)
 
     sections = []
 

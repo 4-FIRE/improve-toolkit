@@ -2,7 +2,7 @@
 """
 MCP Server for Improve Toolkit - stdio protocol
 
-Exposes memory_tool and skill_manager_tool as MCP tools via stdio transport.
+Exposes the persistent memory tool via stdio transport.
 """
 
 import os
@@ -63,14 +63,8 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
-from tools import (
-    MemoryStore,
-    memory_tool,
-    MEMORY_SCHEMA,
-    skill_manage,
-    SKILL_MANAGE_SCHEMA,
-)
-from runtime_paths import get_host, get_project_dir, get_skills_dir, prepare_data_home
+from tools import MemoryStore, memory_tool, MEMORY_SCHEMA
+from runtime_paths import get_host, get_project_dir, prepare_data_home
 from memory_migration import prepare_memories_dir
 
 app = Server("improve")
@@ -118,48 +112,28 @@ async def list_tools():
             description=MEMORY_SCHEMA["description"],
             inputSchema=MEMORY_SCHEMA["parameters"],
         ),
-        Tool(
-            name="skill_manage",
-            description=SKILL_MANAGE_SCHEMA["description"],
-            inputSchema=SKILL_MANAGE_SCHEMA["parameters"],
-        ),
     ]
 
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict):
-    if name in {"memory", "skill_manage"}:
+    if name == "memory":
         try:
             project_dir = resolve_tool_project_dir(arguments)
         except ValueError as exc:
             error = json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
             return [TextContent(type="text", text=error)]
 
-        if name == "memory":
-            result = memory_tool(
-                action=arguments.get("action", ""),
-                target=arguments.get("target", "memory"),
-                content=arguments.get("content"),
-                old_text=arguments.get("old_text"),
-                store=get_memory_store(project_dir),
-            )
-            return [TextContent(type="text", text=result)]
-
-        result = skill_manage(
+        result = memory_tool(
             action=arguments.get("action", ""),
-            name=arguments.get("name", ""),
+            target=arguments.get("target", "memory"),
             content=arguments.get("content"),
-            file_path=arguments.get("file_path"),
-            file_content=arguments.get("file_content"),
-            old_string=arguments.get("old_string"),
-            new_string=arguments.get("new_string"),
-            replace_all=arguments.get("replace_all", False),
-            skills_dir=get_skills_dir(project_dir),
+            old_text=arguments.get("old_text"),
+            store=get_memory_store(project_dir),
         )
         return [TextContent(type="text", text=result)]
 
-    else:
-        return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}, ensure_ascii=False))]
+    return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}, ensure_ascii=False))]
 
 
 def main():

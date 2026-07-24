@@ -24,7 +24,7 @@ python /path/to/plugin-creator/scripts/validate_plugin.py .
 - `.claude-plugin/plugin.json` configures Claude Code.
 - `skills/` contains the workflows bundled by both hosts.
 - `hooks/hooks.json` is shared by both hosts. Codex discovers it by convention.
-- `servers/` contains the local stdio MCP server exposing `memory` and `skill_manage`.
+- `servers/` contains the local stdio MCP server exposing `memory`.
 - `scripts/` contains stdlib-only SessionStart hooks and shared runtime path resolution.
 - Production MCP environments use the per-user, fingerprinted cache resolved by
   `scripts/venv_cache.py`; repository tests may keep using `servers/.venv`.
@@ -32,16 +32,13 @@ python /path/to/plugin-creator/scripts/validate_plugin.py .
 Runtime state is project-scoped:
 
 - Shared runtime data: `.improve-toolkit/{memories,logs,workbench}`.
-- Claude Code skills: `.claude/skills`.
-- Codex skills: `.agents/skills`.
 
 `.improve-toolkit/.gitignore` excludes logs, workbench files, locks, and
 temporary writes. Memory Markdown files remain trackable and belong in the
 repository.
 
-`IMPROVE_PROJECT_DIR`, `IMPROVE_DATA_DIR`, `IMPROVE_MEMORY_DIR`, and
-`IMPROVE_SKILLS_DIR` override the default paths. `IMPROVE_HOST` selects
-`claude` or `codex`.
+`IMPROVE_PROJECT_DIR`, `IMPROVE_DATA_DIR`, and `IMPROVE_MEMORY_DIR` override
+the default paths. `IMPROVE_HOST` selects `claude` or `codex`.
 
 `IMPROVE_CACHE_DIR`, `IMPROVE_VENV_DIR`, and `IMPROVE_PYTHON` override MCP
 bootstrap locations. Keep exact dependency pins synchronized between

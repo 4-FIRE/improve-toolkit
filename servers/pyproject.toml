@@ -1,12 +1,11 @@
 [project]
 name = "improve"
 version = "0.1.0"
-description = "MCP server for improve tools (memory and skill management)"
+description = "MCP server for Improve Toolkit persistent memory"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "mcp==1.28.1",
-    "pyyaml==6.0.3",
 ]
 
 [project.scripts]

@@ -32,7 +32,7 @@ async def run_test() -> None:
                 print("Listing MCP tools...", flush=True)
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
-                assert tool_names == {"memory", "skill_manage"}, tool_names
+                assert tool_names == {"memory"}, tool_names
 
                 print("Writing shared project memory...", flush=True)
                 result = await session.call_tool(

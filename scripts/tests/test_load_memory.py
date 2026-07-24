@@ -13,13 +13,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from load_memory import (
-    ENTRY_DELIMITER,
-    MEMORY_CHAR_LIMIT,
-    USER_CHAR_LIMIT,
-    read_entries,
-    render_block,
-)
+from load_memory import read_entries, render_block
+from memory_format import ENTRY_DELIMITER, MEMORY_CHAR_LIMIT, USER_CHAR_LIMIT
 
 SCRIPT = Path(__file__).resolve().parent.parent / "load_memory.py"
 

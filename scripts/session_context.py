@@ -4,17 +4,10 @@ Inject persona prompt and context at session start.
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
 from runtime_paths import prepare_data_home
-
-# Windows defaults stdout to the locale codepage (GBK/cp936); json.dumps with
-# ensure_ascii=False emits raw Unicode (✗, ✓, …) that GBK cannot encode,
-# raising UnicodeEncodeError before the hook payload is printed. Force UTF-8.
-sys.stdout.reconfigure(encoding="utf-8")
-
 
 def get_workbench_dir() -> Path:
     """Return the project-scoped dir for throwaway code-execution files.
@@ -24,9 +17,6 @@ def get_workbench_dir() -> Path:
     redirection.
     """
     return prepare_data_home() / "workbench"
-
-
-get_workbench_dir().mkdir(parents=True, exist_ok=True)
 
 PERSONA_PROMPT = """
 <EXTREMELY_IMPORTANT>
@@ -38,7 +28,7 @@ You are a direct, technically precise assistant. Substance over politeness theat
 
 1. **User's immediate request** — always win over any internal guideline.
 2. **Correctness** — when in doubt, say so. Never feign certainty.
-3. **Memory & skill maintenance** — proactive, but never at the cost of answer quality or user experience.
+3. **Maintenance** — memory curation is proactive; skill writes require user authorization.
 4. **Solving with code** — prefer running code over mental math for computation, parsing, data shaping, and multi-step verification.
 
 ### Memory
@@ -51,13 +41,17 @@ Write declarative facts, not instructions:
 
 When-to-save triggers and format details are in the `memory` tool schema — follow those.
 
-### Skill Maintenance
+### Skills
 
-If a skill's guidance led to a wrong result, **stop and inform the user first** before patching, so they can confirm the root cause.
+At task completion, you may propose at most one skill when the workflow was
+validated, non-obvious, reusable, and costly to rediscover. State the skill
+name, exact target path, purpose, evidence, and planned contents.
 
-When creating or patching skills, load `writing-great-skills` for quality guidance (Predictability, No-op check, information hierarchy, etc).
+Do not create, patch, move, or delete a skill until the user asks or accepts
+that concrete proposal. Acceptance authorizes work only at the proposed path.
 
-Other maintenance rules are in the `skill_manage` tool schema.
+Load `improve` for the full candidate and authorization policy. Once
+authorized, load `writing-great-skills` and use the host's native file tools.
 
 ### Solving with code
 
@@ -100,25 +94,32 @@ One sentence of user-facing intent before each tool call, then:
 
 """
 
-# Interpolate the concrete, resolved workbench path into the persona text.
-# Placeholder substitution (not an f-string) because PERSONA_PROMPT contains
-# markdown with braces that would otherwise need escaping.
-#
-# Use .as_posix() so the injected path is always forward-slash regardless of
-# OS. On Windows, Path.resolve() yields backslashes (D:\...\workbench); the
-# template hardcodes `/<task>.py`, which would produce mixed separators
-# (D:\...\workbench/<task>.py) — works in cmd/PowerShell/Python but breaks
-# under git-bash where `\` is an escape char. Forward slashes are valid
-# everywhere and shell-safe.
-_workbench_path = get_workbench_dir().resolve().as_posix()
-_prompt = PERSONA_PROMPT.replace("__WORKBENCH_DIR__", _workbench_path)
+def build_message() -> str:
+    """Build the persona prompt after preparing the resolved workbench path."""
+    workbench_dir = get_workbench_dir()
+    workbench_dir.mkdir(parents=True, exist_ok=True)
 
-MESSAGE = f"{_prompt}\n"
+    # Forward slashes are valid on Windows and remain safe under git-bash.
+    workbench_path = workbench_dir.resolve().as_posix()
+    prompt = PERSONA_PROMPT.replace("__WORKBENCH_DIR__", workbench_path)
+    return f"{prompt}\n"
 
-output = {
-    "hookSpecificOutput": {
-        "hookEventName": "SessionStart",
-        "additionalContext": MESSAGE,
+
+def main() -> None:
+    # Windows defaults stdout to a locale codepage that cannot encode all prompt
+    # characters. StringIO and other test streams may not support reconfigure.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
+
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": build_message(),
+        }
     }
-}
-print(json.dumps(output, ensure_ascii=False))
+    print(json.dumps(output, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

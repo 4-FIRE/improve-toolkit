@@ -18,22 +18,30 @@ if defined IMPROVE_PYTHON (
         echo improve: IMPROVE_PYTHON does not exist: %IMPROVE_PYTHON% 1>&2
         exit /b 1
     )
+    "%IMPROVE_PYTHON%" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
+    if errorlevel 1 (
+        echo improve: IMPROVE_PYTHON must be Python 3.10+: %IMPROVE_PYTHON% 1>&2
+        exit /b 1
+    )
     "%IMPROVE_PYTHON%" "%DIR%mcp_server.py" %*
-    exit /b %ERRORLEVEL%
+    exit /b
 )
 
-where py >nul 2>&1 && (
-    py "%DIR%mcp_server.py" %*
-    exit /b %ERRORLEVEL%
-)
-where python >nul 2>&1 && (
-    python "%DIR%mcp_server.py" %*
-    exit /b %ERRORLEVEL%
-)
-where python3 >nul 2>&1 && (
-    python3 "%DIR%mcp_server.py" %*
-    exit /b %ERRORLEVEL%
-)
+py -3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && goto use_py
+python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && goto use_python
+python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && goto use_python3
 
-echo improve: Python 3 interpreter not found (tried py, python, python3). 1>&2
+echo improve: Python 3.10+ interpreter not found (tried py -3, python, python3). 1>&2
 exit /b 1
+
+:use_py
+py -3 "%DIR%mcp_server.py" %*
+exit /b
+
+:use_python
+python "%DIR%mcp_server.py" %*
+exit /b
+
+:use_python3
+python3 "%DIR%mcp_server.py" %*
+exit /b

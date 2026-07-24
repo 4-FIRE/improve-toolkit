@@ -15,7 +15,6 @@ from runtime_paths import (
     get_legacy_memories_dirs,
     get_memories_dir,
     get_project_dir,
-    get_skills_dir,
     prepare_data_home,
 )
 
@@ -31,7 +30,6 @@ def test_claude_defaults():
             assert get_project_dir() == project
             assert get_data_home() == project / ".improve-toolkit"
             assert get_memories_dir() == project / ".improve-toolkit" / "memories"
-            assert get_skills_dir() == project / ".claude" / "skills"
 
 
 def test_codex_defaults():
@@ -46,7 +44,6 @@ def test_codex_defaults():
             assert get_project_dir() == project
             assert get_data_home() == project / ".improve-toolkit"
             assert get_memories_dir() == project / ".improve-toolkit" / "memories"
-            assert get_skills_dir() == project / ".agents" / "skills"
 
 
 def test_codex_plugin_root_detection():
@@ -71,14 +68,12 @@ def test_path_overrides():
         "IMPROVE_HOST": "codex",
         "IMPROVE_PROJECT_DIR": "/project",
         "IMPROVE_DATA_DIR": "/custom/data",
-        "IMPROVE_SKILLS_DIR": "/custom/skills",
     }
     with patch.dict(os.environ, env, clear=True):
         assert get_project_dir() == Path("/project")
         assert get_data_home() == Path("/custom/data")
         assert get_memories_dir() == Path("/custom/data/memories")
         assert get_legacy_memories_dirs() == ()
-        assert get_skills_dir() == Path("/custom/skills")
 
 
 def test_memory_override():

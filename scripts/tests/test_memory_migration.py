@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from memory_migration import ENTRY_DELIMITER, prepare_memories_dir
+from memory_format import ENTRY_DELIMITER
+from memory_migration import prepare_memories_dir
 
 
 def _write(path: Path, entries: list[str]) -> None:

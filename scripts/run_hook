@@ -5,9 +5,8 @@
 # Used by hooks/hooks.json so hooks do not hard-code `python3` (absent on many
 # Windows installs). Usage:  run_hook <script.py> [args...]
 #
-# The hook scripts use only the standard library, so any Python 3 will do — no
-# virtualenv is needed here (unlike servers/launch_mcp, which boots the MCP
-# server with its deps).
+# The hook scripts use only the standard library, so no virtualenv is needed.
+# They share modules with the MCP server and require Python 3.10+.
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 script="$1"
@@ -19,15 +18,20 @@ shift
 # run, print "Python was not found" and exit non-zero — they would otherwise
 # be picked first and silently break every hook. Probe each candidate with
 # `-c` so the stubs (and any non-functional alias) are skipped.
-# `py` is tried first because the Python launcher is reliable on Windows and
-# is absent on most POSIX systems (where `python3` then wins).
-for candidate in py python3 python; do
+# `py` is handled separately because selecting Python 3 requires its `-3` flag.
+if command -v py >/dev/null 2>&1; then
+    if py -3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+        exec py -3 "$DIR/$script" "$@"
+    fi
+fi
+
+for candidate in python3 python; do
     if command -v "$candidate" >/dev/null 2>&1; then
-        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
             exec "$candidate" "$DIR/$script" "$@"
         fi
     fi
 done
 
-echo "improve hook: Python 3 interpreter not found (tried py, python3, python)." >&2
+echo "improve hook: Python 3.10+ interpreter not found (tried py -3, python3, python)." >&2
 exit 1

@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
-import os
 import sys
-import tempfile
-import time
-from contextlib import contextmanager
 from pathlib import Path
 
+from file_ops import atomic_write_text, file_lock
+from memory_format import (
+    deduplicate_entries,
+    join_entries,
+    split_entries,
+)
 from runtime_paths import (
     get_data_home,
     get_legacy_memories_dirs,
@@ -17,18 +19,6 @@ from runtime_paths import (
     prepare_data_home,
 )
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-
-try:
-    import msvcrt
-except ImportError:
-    msvcrt = None
-
-
-ENTRY_DELIMITER = "\n§\n"
 LOCK_TIMEOUT_SECONDS = 15.0
 LOCK_POLL_INTERVAL = 0.1
 MEMORY_FILENAMES = ("MEMORY.md", "USER.md")
@@ -42,28 +32,15 @@ def _read_entries(path: Path) -> list[str]:
     except FileNotFoundError:
         # The legacy file may disappear between is_file() and read_text().
         return []
-    return [entry for part in raw.split(ENTRY_DELIMITER) if (entry := part.strip())]
+    return split_entries(raw)
 
 
 def _write_entries(path: Path, entries: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(
-        dir=str(path.parent),
-        prefix=".migration_",
-        suffix=".tmp",
+    atomic_write_text(
+        path,
+        join_entries(entries),
+        temp_prefix=".migration_",
     )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(ENTRY_DELIMITER.join(entries))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, path)
-    except BaseException:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
-        raise
 
 
 def _warn_retained(path: Path, reason: BaseException | str) -> None:
@@ -73,47 +50,15 @@ def _warn_retained(path: Path, reason: BaseException | str) -> None:
     )
 
 
-@contextmanager
 def _file_lock(path: Path):
     """Use the same sibling lock-file protocol as MemoryStore mutations."""
     lock_path = path.with_suffix(path.suffix + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if msvcrt and (not lock_path.exists() or lock_path.stat().st_size == 0):
-        lock_path.write_text(" ", encoding="utf-8")
-
-    descriptor = open(lock_path, "r+" if msvcrt else "a+")
-    acquired = False
-    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
-    try:
-        while True:
-            try:
-                if fcntl:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                elif msvcrt:
-                    descriptor.seek(0)
-                    msvcrt.locking(descriptor.fileno(), msvcrt.LK_NBLCK, 1)
-                acquired = True
-                break
-            except (OSError, IOError):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError(
-                        f"Could not acquire memory migration lock on {lock_path} "
-                        f"within {LOCK_TIMEOUT_SECONDS:.0f}s."
-                    )
-                time.sleep(min(LOCK_POLL_INTERVAL, remaining))
-        yield
-    finally:
-        if acquired and fcntl:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        elif acquired and msvcrt:
-            try:
-                descriptor.seek(0)
-                msvcrt.locking(descriptor.fileno(), msvcrt.LK_UNLCK, 1)
-            except (OSError, IOError):
-                pass
-        descriptor.close()
+    return file_lock(
+        lock_path,
+        timeout=LOCK_TIMEOUT_SECONDS,
+        poll_interval=LOCK_POLL_INTERVAL,
+        description=f"memory migration lock {lock_path}",
+    )
 
 
 def _prune_synchronized_legacy(path: Path, synchronized: set[str]) -> None:
@@ -177,7 +122,7 @@ def prepare_memories_dir(project_dir: Path | str | None = None) -> Path:
                 entries: list[str] = []
                 for _path, source_entries in readable_sources:
                     entries.extend(source_entries)
-                _write_entries(destination, list(dict.fromkeys(entries)))
+                _write_entries(destination, deduplicate_entries(entries))
 
             try:
                 synchronized = set(_read_entries(destination))

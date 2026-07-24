@@ -1,19 +1,19 @@
 # improve-toolkit
 
-让 Codex 与 Claude Code 持续进化的双宿主插件。它通过本地 MCP 工具提供持久记忆和技能管理，并在会话启动时加载项目上下文，让编码助手能够累积经验、维护偏好并沉淀可复用工作流。
+让 Codex 与 Claude Code 持续进化的双宿主插件。它通过本地 MCP 工具提供持久记忆，并在会话启动时加载项目上下文。模型可以主动提出高价值技能候选，但只有用户同意后才会通过 `writing-great-skills` 创建或修改。
 
 ## 能力
 
-- **MCP 服务 `improve`**：提供 `memory` 与 `skill_manage` 工具。
+- **MCP 服务 `improve`**：只提供持久化 `memory` 工具。
 - **会话上下文**：`SessionStart` 钩子加载项目记忆、用户偏好和通用工作方式。
-- **技能沉淀**：把验证过的复杂流程写成宿主可发现的 `SKILL.md`。
+- **技能编写指导**：用户主动要求或同意具体提案后，由 `writing-great-skills` 指导使用宿主原生文件工具维护指定技能；详细门槛与授权规则见 `skills/improve/SKILL.md`。
 - **双宿主兼容**：同一份技能、钩子和 MCP 实现同时支持 Codex 与 Claude Code。
 
 ## 环境要求
 
 - Python 3.10+
 - Codex CLI 或 Claude Code CLI
-- 首次启动 MCP 服务时需要联网安装 `mcp` 与 `pyyaml`
+- 首次启动 MCP 服务时需要联网安装 `mcp`
 
 ## Codex 安装
 
@@ -71,8 +71,6 @@ claude --plugin-dir /absolute/path/to/improve-toolkit
 | 共享记忆 | `.improve-toolkit/memories/` |
 | 共享日志 | `.improve-toolkit/logs/` |
 | 共享临时工作区 | `.improve-toolkit/workbench/` |
-| Codex 新建技能 | `.agents/skills/` |
-| Claude Code 新建技能 | `.claude/skills/` |
 
 插件会自动创建并维护 `.improve-toolkit/.gitignore`：忽略 `logs/`、
 `workbench/`、记忆锁文件和原子写临时文件，但不会忽略
@@ -91,7 +89,6 @@ claude --plugin-dir /absolute/path/to/improve-toolkit
 - `IMPROVE_PROJECT_DIR=/path/to/project`
 - `IMPROVE_DATA_DIR=/path/to/data`
 - `IMPROVE_MEMORY_DIR=/path/to/shared/memories`
-- `IMPROVE_SKILLS_DIR=/path/to/skills`
 
 ## MCP 虚拟环境缓存
 

@@ -7,7 +7,7 @@ Codex and Claude Code plugin. Codex uses `AGENTS.md`.
 
 One MCP server is configured in `.claude-plugin/plugin.json`:
 
-1. **improve** (local): Python MCP server exposing memory, skill_manage tools
+1. **improve** (local): Python MCP server exposing persistent memory
 
 ## Commands
 
@@ -23,11 +23,10 @@ python scripts/tests/test_load_memory.py
 
 ### Hook Pipeline
 
-Session lifecycle hooks are defined in `hooks/hooks.json`. Each hook runs via `scripts/run_hook <script.py>` which resolves a Python 3 interpreter. Hook scripts follow a uniform pattern:
-
-1. Read JSON payload from stdin (`hook_logger.read_hook_input`)
-2. Process (log, persist, transform)
-3. Print JSON result to stdout (consumed by Claude Code)
+Session lifecycle hooks are defined in `hooks/hooks.json`. Each hook runs via
+`scripts/run_hook <script.py>`, which resolves a Python 3 interpreter. SessionStart
+hooks prepare their project-scoped state and print JSON context to stdout for the
+host to consume.
 
 At SessionStart, `session_context.py` injects general working guidance and
 `load_memory.py` injects the memory/user profile snapshot.
@@ -38,8 +37,9 @@ Pure stdlib Python — no virtualenv needed (unlike `servers/`).
 
 | Module | Role |
 |---|---|
-| `hook_logger.py` | Shared stdin reader + file logger for all hooks |
-| `runtime_paths.py` | Resolves shared runtime and host-specific skill paths |
+| `runtime_paths.py` | Resolves project-scoped shared runtime paths |
+| `file_ops.py` | Cross-platform advisory locks and atomic text writes |
+| `memory_format.py` | Shared memory parsing, limits, serialization, and prompt rendering |
 | `memory_migration.py` | Merges legacy host memory into the shared store |
 | `venv_cache.py` | Resolves and prepares the cross-host MCP virtualenv cache |
 | `session_context.py` | Builds the shared agent prompt with workbench path, emits SessionStart context |
@@ -77,9 +77,10 @@ replace this with a rule that ignores the whole `.improve-toolkit/` directory.
 
 ### Versioning
 
-The plugin version lives in **two** files that must be kept in sync — forgetting one leaves the marketplace listing stale:
+The plugin version lives in **three** files that must be kept in sync:
 
+- `.codex-plugin/plugin.json` → `version`
 - `.claude-plugin/plugin.json` → `version`
 - `.claude-plugin/marketplace.json` → `plugins[].version`
 
-When bumping the version, update both and commit together.
+When bumping the version, update all three and commit together.

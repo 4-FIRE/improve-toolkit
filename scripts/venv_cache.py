@@ -12,21 +12,10 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-import tempfile
-import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-
-try:
-    import msvcrt
-except ImportError:
-    msvcrt = None
+from file_ops import atomic_write_text, file_lock
 
 
 CACHE_SCHEMA = 1
@@ -125,7 +114,6 @@ def build_cache_key(
 
 def resolve_venv(
     requirements_path: Path,
-    fallback_dir: Path,
     *,
     environ: dict[str, str] | None = None,
 ) -> VenvResolution:
@@ -171,43 +159,13 @@ def _locked_file_path(resolution: VenvResolution) -> Path:
     return resolution.path.with_name(f"{resolution.path.name}.lock")
 
 
-@contextmanager
 def _cache_lock(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if msvcrt and (not path.exists() or path.stat().st_size == 0):
-        path.write_text(" ", encoding="utf-8")
-
-    descriptor = open(path, "r+" if msvcrt else "a+")
-    acquired = False
-    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
-    try:
-        while True:
-            try:
-                if fcntl:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                elif msvcrt:
-                    descriptor.seek(0)
-                    msvcrt.locking(descriptor.fileno(), msvcrt.LK_NBLCK, 1)
-                acquired = True
-                break
-            except (OSError, IOError):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError(
-                        f"Timed out waiting for virtualenv cache lock {path}"
-                    )
-                time.sleep(min(LOCK_POLL_INTERVAL, remaining))
-        yield
-    finally:
-        if acquired and fcntl:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        elif acquired and msvcrt:
-            try:
-                descriptor.seek(0)
-                msvcrt.locking(descriptor.fileno(), msvcrt.LK_UNLCK, 1)
-            except (OSError, IOError):
-                pass
-        descriptor.close()
+    return file_lock(
+        path,
+        timeout=LOCK_TIMEOUT_SECONDS,
+        poll_interval=LOCK_POLL_INTERVAL,
+        description=f"virtualenv cache lock {path}",
+    )
 
 
 def _locked_requirements(requirements_path: Path) -> dict[str, str]:
@@ -230,7 +188,7 @@ def _locked_requirements(requirements_path: Path) -> dict[str, str]:
 def _probe_venv(python_path: Path, requirements_path: Path) -> bool:
     expected = _locked_requirements(requirements_path)
     probe_code = (
-        "import importlib.metadata as m; import mcp, yaml; "
+        "import importlib.metadata as m; import mcp; "
         f"expected={expected!r}; "
         "assert all(m.version(name) == version for name, version in expected.items())"
     )
@@ -266,23 +224,11 @@ def _write_ready_marker(resolution: VenvResolution) -> None:
         indent=2,
         sort_keys=True,
     )
-    fd, temp_path = tempfile.mkstemp(
-        dir=str(resolution.path),
-        prefix=".ready_",
-        suffix=".tmp",
+    atomic_write_text(
+        resolution.path / READY_FILENAME,
+        payload + "\n",
+        temp_prefix=".ready_",
     )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(payload + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, resolution.path / READY_FILENAME)
-    except BaseException:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
-        raise
 
 
 def _create_or_repair_venv(
@@ -350,7 +296,7 @@ def _create_or_repair_venv(
 
 def ensure_runtime_venv(requirements_path: Path, fallback_dir: Path) -> Path:
     """Return a healthy shared venv Python, falling back to version-local state."""
-    resolution = resolve_venv(requirements_path, fallback_dir)
+    resolution = resolve_venv(requirements_path)
     try:
         with _cache_lock(_locked_file_path(resolution)):
             return _create_or_repair_venv(resolution, requirements_path)

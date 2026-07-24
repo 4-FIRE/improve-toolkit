@@ -15,14 +15,26 @@ if [ -n "${IMPROVE_PYTHON:-}" ]; then
         echo "improve: IMPROVE_PYTHON is not executable: $IMPROVE_PYTHON" >&2
         exit 1
     fi
+    if ! "$IMPROVE_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+        echo "improve: IMPROVE_PYTHON must be Python 3.10+: $IMPROVE_PYTHON" >&2
+        exit 1
+    fi
     exec "$IMPROVE_PYTHON" "$DIR/mcp_server.py" "$@"
+fi
+
+if command -v py >/dev/null 2>&1; then
+    if py -3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+        exec py -3 "$DIR/mcp_server.py" "$@"
+    fi
 fi
 
 for candidate in python3 python; do
     if command -v "$candidate" >/dev/null 2>&1; then
-        exec "$candidate" "$DIR/mcp_server.py" "$@"
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+            exec "$candidate" "$DIR/mcp_server.py" "$@"
+        fi
     fi
 done
 
-echo "improve: Python 3 interpreter not found (tried python3, python)." >&2
+echo "improve: Python 3.10+ interpreter not found (tried py -3, python3, python)." >&2
 exit 1
