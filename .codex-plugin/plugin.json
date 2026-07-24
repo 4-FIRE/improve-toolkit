@@ -1,6 +1,6 @@
 {
   "name": "improve-toolkit",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "为 Codex 和 Claude Code 提供持久记忆、技能编写指导与会话上下文注入，让编码助手能够积累经验并持续改进。",
   "author": {
     "name": "qiyan",
