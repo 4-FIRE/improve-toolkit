@@ -64,19 +64,59 @@ claude --plugin-dir /absolute/path/to/improve-toolkit
 
 ## 运行时数据
 
-数据按项目隔离，不会写进插件安装目录：
+数据按项目隔离，不会写进插件安装目录。Codex 与 Claude Code 共用同一个运行时根目录：
 
-| 宿主 | 记忆、日志和临时工作区 | 新建技能 |
-| --- | --- | --- |
-| Codex | `.codex/improve-toolkit/` | `.agents/skills/` |
-| Claude Code | `.claude/` | `.claude/skills/` |
+| 数据 | 路径 |
+| --- | --- |
+| 共享记忆 | `.improve-toolkit/memories/` |
+| 共享日志 | `.improve-toolkit/logs/` |
+| 共享临时工作区 | `.improve-toolkit/workbench/` |
+| Codex 新建技能 | `.agents/skills/` |
+| Claude Code 新建技能 | `.claude/skills/` |
+
+插件会自动创建并维护 `.improve-toolkit/.gitignore`：忽略 `logs/`、
+`workbench/`、记忆锁文件和原子写临时文件，但不会忽略
+`memories/MEMORY.md` 与 `memories/USER.md`。记忆文件应随项目提交，以便克隆仓库后继续共享项目知识。
+
+升级后首次加载记忆时，插件会把旧的 `.claude/memories/` 与
+`.codex/improve-toolkit/memories/` 按条目去重合并到共享目录。共享目标文件一旦存在，
+便成为唯一数据源。已在共享文件中验证存在的旧条目会从旧文件移除；旧文件全部同步后
+会删除。无法读取、无法验证或未出现在共享文件中的条目保留在旧文件中，等待人工处理，
+不会自动重新导入并复活已删除的共享记忆。
+旧的宿主专用日志和 workbench 不迁移。
 
 可用环境变量覆盖默认位置：
 
 - `IMPROVE_HOST=codex|claude`
 - `IMPROVE_PROJECT_DIR=/path/to/project`
 - `IMPROVE_DATA_DIR=/path/to/data`
+- `IMPROVE_MEMORY_DIR=/path/to/shared/memories`
 - `IMPROVE_SKILLS_DIR=/path/to/skills`
+
+## MCP 虚拟环境缓存
+
+生产启动不会再把 `.venv` 建在按版本隔离的插件安装目录中。Codex 与
+Claude Code 默认按 Python、平台和 `servers/requirements.lock` 指纹复用同一份
+用户级缓存：
+
+| 系统 | 默认缓存根目录 |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\ImproveToolkit\Cache` |
+| macOS | `~/Library/Caches/improve-toolkit` |
+| Linux | `$XDG_CACHE_HOME/improve-toolkit`，未设置时为 `~/.cache/improve-toolkit` |
+
+插件版本号不参与缓存键，因此只升级插件而 Python 与依赖未变化时不会重复创建
+虚拟环境。缓存创建使用跨进程文件锁；依赖验证成功后才写入 `.improve-ready.json`。
+用户缓存不可写时，会告警并回退到当前版本的 `servers/.venv`。
+
+可用覆盖：
+
+- `IMPROVE_CACHE_DIR=/path/to/cache`：覆盖用户缓存根目录。
+- `IMPROVE_VENV_DIR=/path/to/existing-or-new-venv`：指定一个虚拟环境目录。
+- `IMPROVE_PYTHON=/absolute/path/to/python`：指定基础解释器；两个宿主配置相同路径时可稳定复用。
+
+仓库开发测试仍可使用 `servers/.venv`。修改 MCP 依赖时，应同步更新
+`servers/requirements.lock` 与 `servers/pyproject.toml`，从而生成新的缓存指纹。
 
 ## 开发与验证
 

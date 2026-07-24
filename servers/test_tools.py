@@ -12,6 +12,7 @@ import tempfile
 import os
 import json
 import shutil
+import importlib.metadata
 from pathlib import Path
 
 # =============================================================================
@@ -21,6 +22,7 @@ from pathlib import Path
 PLUGIN_DIR = Path(__file__).parent
 VENV_DIR = PLUGIN_DIR / ".venv"
 SCRIPTS_DIR = PLUGIN_DIR.parent / "scripts"
+REQUIREMENTS_LOCK = PLUGIN_DIR / "requirements.lock"
 
 # Initialize test environment BEFORE venv check so env vars propagate across execv()
 _TEST_DIR = None
@@ -72,19 +74,33 @@ if __name__ == "__main__":
             os.execv(str(venv_python), [str(venv_python), __file__])
 
     # Now we're in venv - check dependencies
-    required = {"mcp": "mcp>=1.0.0", "yaml": "pyyaml>=6.0"}
-    missing = []
-    for module, spec in required.items():
+    required = {
+        "mcp": ("mcp", "1.28.1"),
+        "yaml": ("PyYAML", "6.0.3"),
+    }
+    needs_install = False
+    for module, (distribution, version) in required.items():
         try:
             __import__(module)
-        except ImportError:
-            missing.append(spec)
+            if importlib.metadata.version(distribution) != version:
+                needs_install = True
+        except (ImportError, importlib.metadata.PackageNotFoundError):
+            needs_install = True
 
-    if missing:
-        print(f"Installing: {', '.join(missing)}", file=sys.stderr)
+    if needs_install:
+        print(f"Installing locked dependencies from {REQUIREMENTS_LOCK}", file=sys.stderr)
         # Install into the venv's Python (on the Windows in-process path,
         # sys.executable is still the system interpreter, so use venv_python).
-        subprocess.check_call([str(venv_python), "-m", "pip", "install"] + missing)
+        subprocess.check_call(
+            [
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                str(REQUIREMENTS_LOCK),
+            ]
+        )
         import importlib
         importlib.invalidate_caches()
 
@@ -114,7 +130,7 @@ def init_test_env():
         os.environ["CLAUDE_PROJECT_DIR"] = test_dir
 
     SKILLS_DIR = Path(test_dir) / ".claude" / "skills"
-    MEMORIES_DIR = Path(test_dir) / ".claude" / "memories"
+    MEMORIES_DIR = Path(test_dir) / ".improve-toolkit" / "memories"
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     MEMORIES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1046,21 +1062,12 @@ def test_skill_missing_name():
 
 
 def test_codex_project_scoping():
-    """Explicit Codex project_dir routes memory and skills into that project."""
+    """Explicit Codex project_dir routes shared memory and host skills."""
     print("\n=== Test Codex project scoping ===")
     project_dir = Path(tempfile.mkdtemp(prefix="improve_codex_scope_"))
     try:
-        data_home = project_dir / ".codex" / "improve-toolkit"
-        scoped_store = MemoryStore(data_home=data_home)
-        scoped_store.load_from_disk()
-        result = memory_tool(
-            "add",
-            "memory",
-            "Codex scoped memory",
-            store=scoped_store,
-        )
-        assert_success(json.loads(result))
-        assert (data_home / "memories" / "MEMORY.md").is_file()
+        data_home = project_dir / ".improve-toolkit"
+        shared_memory_dir = project_dir / ".improve-toolkit" / "memories"
 
         scoped_skills = project_dir / ".agents" / "skills"
         skill_content = """---
@@ -1080,11 +1087,24 @@ description: Test Codex project-scoped skill writes
         assert (scoped_skills / "codex-scoped-skill" / "SKILL.md").is_file()
         print("  explicit memory and skill paths: OK")
 
-        from mcp_server import resolve_tool_project_dir
+        from mcp_server import get_memory_store, memory_stores, resolve_tool_project_dir
 
         old_host = os.environ.get("IMPROVE_HOST")
         os.environ["IMPROVE_HOST"] = "codex"
         try:
+            memory_stores.clear()
+            scoped_store = get_memory_store(project_dir)
+            assert scoped_store.data_home == data_home.resolve()
+            assert scoped_store.memory_dir == shared_memory_dir.resolve()
+            result = memory_tool(
+                "add",
+                "memory",
+                "Codex scoped memory",
+                store=scoped_store,
+            )
+            assert_success(json.loads(result))
+            assert (shared_memory_dir / "MEMORY.md").is_file()
+
             try:
                 resolve_tool_project_dir({})
                 raise AssertionError("Codex call without project_dir should fail")

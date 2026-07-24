@@ -26,6 +26,7 @@ def run_hook(workdir: Path, host: str = "claude") -> dict:
         "IMPROVE_HOST",
         "IMPROVE_PROJECT_DIR",
         "IMPROVE_DATA_DIR",
+        "IMPROVE_MEMORY_DIR",
     ):
         env.pop(key, None)
     if host == "codex":
@@ -49,9 +50,9 @@ def test_workbench_dir_created_and_path_in_context():
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        expected = str((workdir / ".claude" / "workbench").resolve())
+        expected = str((workdir / ".improve-toolkit" / "workbench").resolve())
         assert expected in context, f"workbench path missing from context; expected {expected!r}"
-        assert (workdir / ".claude" / "workbench").is_dir(), "workbench dir was not created"
+        assert (workdir / ".improve-toolkit" / "workbench").is_dir(), "workbench dir was not created"
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -64,7 +65,7 @@ def test_no_legacy_tmp_references():
         # The resolved workbench itself normally lives under the OS temp
         # directory in this test. Remove that valid dynamic path before
         # checking for old hard-coded /tmp guidance.
-        workbench = str((workdir / ".claude" / "workbench").resolve())
+        workbench = str((workdir / ".improve-toolkit" / "workbench").resolve())
         context = context.replace(workbench, "<WORKBENCH>")
         # The three former /tmp references must be gone.
         for legacy in ("/tmp/<task>.py", "JSON files in /tmp", "python /tmp/"):
@@ -78,7 +79,7 @@ def test_workbench_path_appears_in_run_guidance():
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        expected = str((workdir / ".claude" / "workbench").resolve())
+        expected = str((workdir / ".improve-toolkit" / "workbench").resolve())
         # The "How to run" guidance should reference the workbench path for
         # both writing the file and executing it.
         assert context.count(expected) >= 2, (
@@ -94,10 +95,13 @@ def test_codex_workbench_dir_created():
     try:
         data = run_hook(workdir, host="codex")
         context = data["hookSpecificOutput"]["additionalContext"]
-        expected_dir = workdir / ".codex" / "improve-toolkit" / "workbench"
+        expected_dir = workdir / ".improve-toolkit" / "workbench"
         assert str(expected_dir.resolve()) in context
         assert expected_dir.is_dir()
         assert "Claude Code Persona" not in context
+        ignore_file = workdir / ".improve-toolkit" / ".gitignore"
+        assert ignore_file.is_file()
+        assert "/workbench/" in ignore_file.read_text(encoding="utf-8")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

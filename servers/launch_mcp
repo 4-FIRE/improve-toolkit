@@ -10,6 +10,14 @@
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+if [ -n "${IMPROVE_PYTHON:-}" ]; then
+    if [ ! -x "$IMPROVE_PYTHON" ]; then
+        echo "improve: IMPROVE_PYTHON is not executable: $IMPROVE_PYTHON" >&2
+        exit 1
+    fi
+    exec "$IMPROVE_PYTHON" "$DIR/mcp_server.py" "$@"
+fi
+
 for candidate in python3 python; do
     if command -v "$candidate" >/dev/null 2>&1; then
         exec "$candidate" "$DIR/mcp_server.py" "$@"

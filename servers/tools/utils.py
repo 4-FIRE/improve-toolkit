@@ -9,12 +9,12 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any
 
-from runtime_paths import get_data_home, get_skills_dir
+from runtime_paths import get_skills_dir, prepare_data_home
 
 
 def get_home() -> Path:
-    """Return the host-aware Improve Toolkit data directory."""
-    return get_data_home()
+    """Return the prepared shared Improve Toolkit data directory."""
+    return prepare_data_home()
 
 
 def atomic_replace(src: Path, dst: Path) -> None:

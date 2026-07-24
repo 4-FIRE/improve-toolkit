@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from runtime_paths import get_data_home
+from runtime_paths import prepare_data_home
 
 # Windows defaults stdout to the locale codepage (GBK/cp936); json.dumps with
 # ensure_ascii=False emits raw Unicode (✗, ✓, …) that GBK cannot encode,
@@ -19,11 +19,11 @@ sys.stdout.reconfigure(encoding="utf-8")
 def get_workbench_dir() -> Path:
     """Return the project-scoped dir for throwaway code-execution files.
 
-    Mirrors load_memory.py's host-aware path resolution. Created at session
+    Mirrors load_memory.py's shared path resolution. Created at session
     start so the path is writable even if the assistant writes via shell
     redirection.
     """
-    return get_data_home() / "workbench"
+    return prepare_data_home() / "workbench"
 
 
 get_workbench_dir().mkdir(parents=True, exist_ok=True)

@@ -5,8 +5,8 @@ description = "MCP server for improve tools (memory and skill management)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.0.0",
-    "pyyaml>=6.0",
+    "mcp==1.28.1",
+    "pyyaml==6.0.3",
 ]
 
 [project.scripts]

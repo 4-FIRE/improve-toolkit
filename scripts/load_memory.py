@@ -4,18 +4,17 @@ Load memory files at session start for system prompt injection.
 Outputs JSON with additional_context for SessionStart hook.
 
 Based on MemoryStore from memory_tool.py:
-- Memory files live in the active host's project data directory
+- Memory files live in a shared, project-scoped directory across plugin hosts
 - Separate char limits: memory (2200), user (1375)
 - Frozen snapshot pattern: system prompt is stable across session
 """
 
 import json
-import os
 import sys
 import traceback
 from pathlib import Path
 
-from runtime_paths import get_data_home
+from memory_migration import prepare_memories_dir
 
 # Windows defaults stdout to GBK; force UTF-8 so memory content with non-GBK
 # characters (emoji, box-drawing, etc.) prints without UnicodeEncodeError.
@@ -26,14 +25,9 @@ MEMORY_CHAR_LIMIT = 2200
 USER_CHAR_LIMIT = 1375
 
 
-def get_home() -> Path:
-    """Return the host-aware Improve Toolkit data directory."""
-    return get_data_home()
-
-
 def get_memories_dir() -> Path:
-    """Return the profile-scoped memories directory."""
-    return get_home() / "memories"
+    """Return the shared memory directory, migrating legacy files if needed."""
+    return prepare_memories_dir()
 
 
 def read_entries(path: Path) -> list[str]:

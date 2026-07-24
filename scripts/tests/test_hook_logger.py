@@ -121,7 +121,7 @@ def test_log_hook_data_creates_file():
         with patch.dict(os.environ, env_patch, clear=False):
             log_hook_data("TestHook", {"foo": "bar"})
 
-        logs_dir = workdir / ".claude" / "logs"
+        logs_dir = workdir / ".improve-toolkit" / "logs"
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = logs_dir / f"hook_TestHook_{today}.log"
 
@@ -137,7 +137,7 @@ def test_log_hook_data_cleans_old_logs():
     """Old log files (different date) are removed."""
     workdir = Path(tempfile.mkdtemp(prefix="hl_test_"))
     try:
-        logs_dir = workdir / ".claude" / "logs"
+        logs_dir = workdir / ".improve-toolkit" / "logs"
         logs_dir.mkdir(parents=True)
 
         # Create an old log file
@@ -162,7 +162,7 @@ def test_log_hook_data_preserves_todays_log():
             log_hook_data("AppendHook", {"first": "write"})
             log_hook_data("AppendHook", {"second": "write"})
 
-        logs_dir = workdir / ".claude" / "logs"
+        logs_dir = workdir / ".improve-toolkit" / "logs"
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = logs_dir / f"hook_AppendHook_{today}.log"
 
@@ -187,7 +187,7 @@ def test_log_hook_data_excludes_secret_environment_values():
 
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = (
-            workdir / ".claude" / "logs" / f"hook_SafeEnvHook_{today}.log"
+            workdir / ".improve-toolkit" / "logs" / f"hook_SafeEnvHook_{today}.log"
         )
         content = log_file.read_text(encoding="utf-8")
         assert f"CLAUDE_PROJECT_DIR={workdir}" in content

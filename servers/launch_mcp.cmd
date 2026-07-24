@@ -13,6 +13,15 @@ REM `python`, then `python3`.
 setlocal
 set "DIR=%~dp0"
 
+if defined IMPROVE_PYTHON (
+    if not exist "%IMPROVE_PYTHON%" (
+        echo improve: IMPROVE_PYTHON does not exist: %IMPROVE_PYTHON% 1>&2
+        exit /b 1
+    )
+    "%IMPROVE_PYTHON%" "%DIR%mcp_server.py" %*
+    exit /b %ERRORLEVEL%
+)
+
 where py >nul 2>&1 && (
     py "%DIR%mcp_server.py" %*
     exit /b %ERRORLEVEL%

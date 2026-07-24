@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-from runtime_paths import get_data_home
+from runtime_paths import prepare_data_home
 
 
 def read_hook_input() -> dict:
@@ -36,7 +36,7 @@ def read_hook_input() -> dict:
 
 def log_hook_data(hook_name: str, input_data: dict) -> None:
     """Log hook input data. Only keeps today's logs."""
-    logs_dir = get_data_home() / "logs"
+    logs_dir = prepare_data_home() / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     
     today = datetime.now().strftime("%Y-%m-%d")
@@ -81,7 +81,11 @@ def log_hook_data(hook_name: str, input_data: dict) -> None:
             "IMPROVE_HOST",
             "IMPROVE_PROJECT_DIR",
             "IMPROVE_DATA_DIR",
+            "IMPROVE_MEMORY_DIR",
             "IMPROVE_SKILLS_DIR",
+            "IMPROVE_CACHE_DIR",
+            "IMPROVE_VENV_DIR",
+            "IMPROVE_PYTHON",
             "SESSION_ID",
         }
         f.write(f"\nEnvironment Variables (plugin paths and session metadata):\n")

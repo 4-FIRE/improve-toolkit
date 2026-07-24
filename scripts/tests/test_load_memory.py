@@ -152,6 +152,7 @@ def run_load_memory(workdir: Path, host: str = "claude") -> dict:
         "IMPROVE_HOST",
         "IMPROVE_PROJECT_DIR",
         "IMPROVE_DATA_DIR",
+        "IMPROVE_MEMORY_DIR",
     ):
         env.pop(key, None)
     if host == "codex":
@@ -242,8 +243,8 @@ def test_main_with_both_files():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_main_with_codex_memory_file():
-    """Codex loads project memory from .codex/improve-toolkit/memories."""
+def test_main_migrates_codex_memory_file():
+    """Codex migrates its legacy host-specific memory into the shared store."""
     workdir = Path(tempfile.mkdtemp(prefix="lm_codex_test_"))
     try:
         mem_dir = workdir / ".codex" / "improve-toolkit" / "memories"
@@ -253,6 +254,29 @@ def test_main_with_codex_memory_file():
         data = run_load_memory(workdir, host="codex")
         ctx = data["hookSpecificOutput"]["additionalContext"]
         assert "codex project fact" in ctx
+        assert (
+            workdir / ".improve-toolkit" / "memories" / "MEMORY.md"
+        ).is_file()
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_hosts_load_same_shared_memory():
+    """Codex and Claude load the same host-neutral memory file."""
+    workdir = Path(tempfile.mkdtemp(prefix="lm_shared_test_"))
+    try:
+        mem_dir = workdir / ".improve-toolkit" / "memories"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "MEMORY.md").write_text("cross-host project fact")
+
+        claude_ctx = run_load_memory(workdir, host="claude")[
+            "hookSpecificOutput"
+        ]["additionalContext"]
+        codex_ctx = run_load_memory(workdir, host="codex")[
+            "hookSpecificOutput"
+        ]["additionalContext"]
+        assert "cross-host project fact" in claude_ctx
+        assert codex_ctx == claude_ctx
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -279,7 +303,8 @@ ALL_TESTS = [
     test_main_with_memory_file,
     test_main_with_user_file,
     test_main_with_both_files,
-    test_main_with_codex_memory_file,
+    test_main_migrates_codex_memory_file,
+    test_hosts_load_same_shared_memory,
 ]
 
 

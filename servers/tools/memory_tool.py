@@ -59,7 +59,7 @@ _ACTIVE_DATA_HOME: ContextVar[Optional[Path]] = ContextVar(
 # Diagnostic logging + change audit
 #
 # The MCP server speaks JSON-RPC over stdio, so we cannot log to stdout.
-# Everything goes to the active project's host-specific log directory.
+# Everything goes to the active project's shared runtime log directory.
 #
 # Two sinks:
 #   - memory_tool.log       : operational trace (lock waits, reloads, writes)
@@ -130,12 +130,10 @@ def _append_audit(record: Dict[str, Any]) -> None:
         logger.warning("audit log write failed: %s", exc)
 
 
-# Where memory files live — resolved dynamically so profile overrides
-# (get_home() env var changes) are always respected.  The old module-level
-# constant was cached at import time and could go stale if a profile switch
-# happened after the first import.
+# Backward-compatible helper for callers that supply a complete runtime data
+# home. Production wiring passes the shared cross-host memory_dir explicitly.
 def get_memory_dir(data_home: Optional[Path] = None) -> Path:
-    """Return the profile-scoped memories directory."""
+    """Return the memories child of a runtime data directory."""
     return (data_home if data_home is not None else get_home()) / "memories"
 
 
@@ -233,18 +231,24 @@ class MemoryStore:
         memory_char_limit: int = 2200,
         user_char_limit: int = 1375,
         data_home: Optional[Path] = None,
+        memory_dir: Optional[Path] = None,
     ):
         self.memory_entries: List[str] = []
         self.user_entries: List[str] = []
         self.memory_char_limit = memory_char_limit
         self.user_char_limit = user_char_limit
         self.data_home = Path(data_home) if data_home is not None else get_home()
+        self.memory_dir = (
+            Path(memory_dir)
+            if memory_dir is not None
+            else get_memory_dir(self.data_home)
+        )
         # Frozen snapshot for system prompt -- set once at load_from_disk()
         self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
 
     def load_from_disk(self):
         """Load entries from MEMORY.md and USER.md, capture system prompt snapshot."""
-        mem_dir = get_memory_dir(self.data_home)
+        mem_dir = self.memory_dir
         mem_dir.mkdir(parents=True, exist_ok=True)
 
         self.memory_entries = self._read_file(mem_dir / "MEMORY.md")
@@ -367,10 +371,9 @@ class MemoryStore:
             logger.debug("lock: released %s", lock_path)
 
     def _path_for(self, target: str) -> Path:
-        mem_dir = get_memory_dir(self.data_home)
         if target == "user":
-            return mem_dir / "USER.md"
-        return mem_dir / "MEMORY.md"
+            return self.memory_dir / "USER.md"
+        return self.memory_dir / "MEMORY.md"
 
     def _reload_target(self, target: str):
         """Re-read entries from disk into in-memory state.
@@ -383,7 +386,7 @@ class MemoryStore:
 
     def save_to_disk(self, target: str):
         """Persist entries to the appropriate file. Called after every mutation."""
-        get_memory_dir(self.data_home).mkdir(parents=True, exist_ok=True)
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
         self._write_file(self._path_for(target), self._entries_for(target))
 
     def _entries_for(self, target: str) -> List[str]:
@@ -837,7 +840,8 @@ MEMORY_SCHEMA = {
     "name": "memory",
     "description": (
         "Save durable information to persistent memory that survives across sessions. "
-        "Memory is injected into future turns, so keep it compact and focused on facts "
+        "Memory is shared by supported tools in the same project and injected into "
+        "future turns, so keep it compact and focused on facts "
         "that will still matter later.\n\n"
         "WHEN TO SAVE (do this proactively, don't wait to be asked):\n"
         "- User corrects you or says 'remember this' / 'don't do that again'\n"

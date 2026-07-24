@@ -27,11 +27,14 @@ async def run_test() -> None:
 
         async with stdio_client(server) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
+                print("Initializing MCP session...", flush=True)
                 await session.initialize()
+                print("Listing MCP tools...", flush=True)
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 assert tool_names == {"memory", "skill_manage"}, tool_names
 
+                print("Writing shared project memory...", flush=True)
                 result = await session.call_tool(
                     "memory",
                     {
@@ -45,13 +48,12 @@ async def run_test() -> None:
                 assert payload["success"] is True, payload
                 assert (
                     project_dir
-                    / ".codex"
-                    / "improve-toolkit"
+                    / ".improve-toolkit"
                     / "memories"
                     / "MEMORY.md"
                 ).is_file()
 
 
 if __name__ == "__main__":
-    asyncio.run(run_test())
+    asyncio.run(asyncio.wait_for(run_test(), timeout=60))
     print("MCP protocol smoke test passed")

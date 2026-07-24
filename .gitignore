@@ -26,6 +26,7 @@ venv/
 ENV/
 env/
 .venv/
+.venv.lock
 
 # IDE
 .vscode/
@@ -56,8 +57,12 @@ logs/
 *.temp
 .cache/
 
-# Memory files (persistent context)
-.improve-toolkit/
+# Shared runtime state. .improve-toolkit/memories/*.md stays trackable.
+.improve-toolkit/logs/
+.improve-toolkit/workbench/
+.improve-toolkit/memories/*.lock
+.improve-toolkit/memories/.mem_*.tmp
+.improve-toolkit/memories/.migration_*.tmp
 .codex/improve-toolkit/
 
 .claude/sessions/

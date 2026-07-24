@@ -39,9 +39,11 @@ Pure stdlib Python — no virtualenv needed (unlike `servers/`).
 | Module | Role |
 |---|---|
 | `hook_logger.py` | Shared stdin reader + file logger for all hooks |
-| `runtime_paths.py` | Resolves project paths for Codex and Claude Code |
+| `runtime_paths.py` | Resolves shared runtime and host-specific skill paths |
+| `memory_migration.py` | Merges legacy host memory into the shared store |
+| `venv_cache.py` | Resolves and prepares the cross-host MCP virtualenv cache |
 | `session_context.py` | Builds the shared agent prompt with workbench path, emits SessionStart context |
-| `load_memory.py` | Reads host-specific `MEMORY.md`/`USER.md` files and renders prompt blocks |
+| `load_memory.py` | Reads shared `MEMORY.md`/`USER.md` files and renders prompt blocks |
 
 ### Data Flow
 
@@ -49,15 +51,23 @@ Pure stdlib Python — no virtualenv needed (unlike `servers/`).
 hooks.json → run_hook → hook script → session_context.py (persona) → load_memory.py (memories)
 ```
 
-Claude memory files live in `.claude/memories/`; Codex memory files live in
-`.codex/improve-toolkit/memories/`. `MEMORY.md` and `USER.md` use `§` as the
-entry delimiter.
+Both hosts read and write `.improve-toolkit/memories/`. On first use, legacy
+files from `.claude/memories/` and `.codex/improve-toolkit/memories/` are
+deduplicated into the shared store. `MEMORY.md` and `USER.md` use `§` as the
+entry delimiter. Verified synchronized entries are pruned from legacy files;
+only unreadable, unverifiable, or unmatched entries remain for manual
+resolution.
+
+Logs and workbench files are also shared under `.improve-toolkit/`.
+`prepare_data_home()` maintains `.improve-toolkit/.gitignore` so runtime noise
+stays untracked while memory Markdown files remain repository content. Do not
+replace this with a rule that ignores the whole `.improve-toolkit/` directory.
 
 ### Plugin Structure
 
 - `.claude-plugin/` — Plugin metadata and MCP server config
 - `.codex-plugin/` and `.mcp.json` — Codex plugin metadata and MCP config
-- `servers/` — MCP server (has its own `.venv`, `pyproject.toml`)
+- `servers/` — MCP server, exact bootstrap dependency pins, and development `.venv`
 - `scripts/` — Hook scripts and utilities (stdlib only, no venv)
 - `scripts/tests/` — Unit tests (stdlib, run individually or via `run_tests.py`)
 - `hooks/hooks.json` — Hook configuration
