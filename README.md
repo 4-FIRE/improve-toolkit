@@ -114,10 +114,15 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 | macOS | `~/Library/Caches/improve-toolkit` |
 | Linux | `$XDG_CACHE_HOME/improve-toolkit`，未设置时为 `~/.cache/improve-toolkit` |
 
-创建过程受文件锁保护，依赖验证后写入 `.improve-ready.json`。共享缓存不可用时回退到
-`servers/.venv`。可通过 `IMPROVE_CACHE_DIR`、`IMPROVE_VENV_DIR` 或
+创建过程受文件锁保护，依赖验证后写入 `.improve-ready.json`。缓存键不包含插件版本：
+Python 身份与依赖锁未变化时，升级直接复用现有环境。用户缓存不可用时，marketplace
+安装会回退到各版本目录共同父级的 `.improve-cache/venvs/`；只有这两个共享位置都不可用
+时才使用版本内的 `servers/.venv`。可通过 `IMPROVE_CACHE_DIR`、`IMPROVE_VENV_DIR` 或
 `IMPROVE_PYTHON` 覆盖缓存根、虚拟环境或基础解释器。修改依赖时必须同步更新
 `servers/requirements.lock` 与 `servers/pyproject.toml` 的精确版本。
+
+旧版本已经创建的 `servers/.venv` 不会自动删除，以免破坏仍在运行的旧会话；确认旧版本
+不再被宿主使用后，可随对应旧版本目录一起清理。
 
 ## 开发与验证
 
