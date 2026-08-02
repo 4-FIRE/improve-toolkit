@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the cross-platform shared virtualenv cache."""
 
+import json
 import os
 import sys
 import tempfile
@@ -9,9 +10,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from venv_cache import (
+    VenvResolution,
     build_cache_key,
     ensure_runtime_venv,
     get_cache_root,
+    get_install_cache_root,
+    resolve_install_venv,
     resolve_venv,
     venv_python_path,
 )
@@ -28,9 +32,21 @@ IDENTITY = {
 
 
 def _requirements(directory: Path, content: str = "mcp==1.28.1\n") -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
     path = directory / "requirements.lock"
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _versioned_plugin(family: Path, version: str) -> Path:
+    root = family / version
+    manifest = root / ".codex-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps({"name": family.name, "version": version}),
+        encoding="utf-8",
+    )
+    return root
 
 
 def test_platform_cache_roots():
@@ -63,6 +79,68 @@ def test_cache_override():
         platform_name="linux",
         home=Path("/unused"),
     ) == Path("/custom/cache")
+
+
+def test_versioned_installs_share_family_cache():
+    with tempfile.TemporaryDirectory(prefix="venv_install_cache_") as temp_dir:
+        family = Path(temp_dir) / "improve-toolkit"
+        first = _versioned_plugin(family, "1.0.12")
+        second = _versioned_plugin(family, "1.0.13")
+        first_requirements = _requirements(first / "servers")
+        second_requirements = _requirements(second / "servers")
+
+        assert get_install_cache_root(first) == family / ".improve-cache"
+        first_resolution = resolve_install_venv(first_requirements, first)
+        second_resolution = resolve_install_venv(second_requirements, second)
+        assert first_resolution is not None
+        assert second_resolution is not None
+        assert first_resolution.path == second_resolution.path
+        assert first_resolution.path.parent == family / ".improve-cache" / "venvs"
+
+        source_checkout = Path(temp_dir) / "source" / "improve-toolkit"
+        source_manifest = source_checkout / ".codex-plugin" / "plugin.json"
+        source_manifest.parent.mkdir(parents=True)
+        source_manifest.write_text(
+            json.dumps({"name": "improve-toolkit", "version": "1.0.13"}),
+            encoding="utf-8",
+        )
+        assert get_install_cache_root(source_checkout) is None
+
+
+def test_install_cache_precedes_version_local_fallback():
+    with tempfile.TemporaryDirectory(prefix="venv_fallback_order_") as temp_dir:
+        family = Path(temp_dir) / "improve-toolkit"
+        plugin_root = _versioned_plugin(family, "1.0.13")
+        requirements = _requirements(plugin_root / "servers")
+        fallback = plugin_root / "servers" / ".venv"
+        key, requirements_sha256 = build_cache_key(requirements)
+        unavailable = VenvResolution(
+            path=Path(temp_dir) / "unavailable" / key,
+            key=key,
+            requirements_sha256=requirements_sha256,
+            shared=True,
+            cache_root=Path(temp_dir) / "unavailable",
+            managed=True,
+        )
+        attempted: list[Path] = []
+
+        def fake_create(resolution, _requirements_path):
+            attempted.append(resolution.path)
+            if resolution.path == unavailable.path:
+                raise OSError("simulated read-only cache")
+            return resolution.path / "bin" / "python"
+
+        with patch("venv_cache.resolve_venv", return_value=unavailable), patch(
+            "venv_cache._create_or_repair_venv",
+            side_effect=fake_create,
+        ):
+            selected = ensure_runtime_venv(requirements, fallback)
+
+        install_resolution = resolve_install_venv(requirements, plugin_root)
+        assert install_resolution is not None
+        assert attempted == [unavailable.path, install_resolution.path]
+        assert selected == install_resolution.path / "bin" / "python"
+        assert fallback not in attempted
 
 
 def test_key_depends_on_python_and_requirements_not_plugin_version():
@@ -190,6 +268,8 @@ def test_lock_file_matches_pyproject_pins():
 ALL_TESTS = [
     test_platform_cache_roots,
     test_cache_override,
+    test_versioned_installs_share_family_cache,
+    test_install_cache_precedes_version_local_fallback,
     test_key_depends_on_python_and_requirements_not_plugin_version,
     test_codex_and_claude_resolve_same_shared_path,
     test_explicit_venv_override,

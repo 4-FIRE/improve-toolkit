@@ -20,6 +20,7 @@ from file_ops import atomic_write_text, file_lock
 
 CACHE_SCHEMA = 1
 READY_FILENAME = ".improve-ready.json"
+INSTALL_CACHE_DIRNAME = ".improve-cache"
 LOCK_TIMEOUT_SECONDS = 120.0
 LOCK_POLL_INTERVAL = 0.2
 
@@ -58,6 +59,36 @@ def get_cache_root(
     xdg_cache = env.get("XDG_CACHE_HOME", "").strip()
     base = Path(xdg_cache).expanduser() if xdg_cache else user_home / ".cache"
     return base / "improve-toolkit"
+
+
+def get_install_cache_root(plugin_root: Path) -> Path | None:
+    """Return a cache shared by sibling plugin versions, when detectable.
+
+    Codex and Claude install marketplace plugins as ``<plugin>/<version>``.
+    Keeping the fallback beside those version directories avoids recreating a
+    virtualenv on every upgrade when the normal per-user cache is unavailable.
+    Source checkouts deliberately keep using their repository-local fallback.
+    """
+    root = Path(plugin_root)
+    manifests = (
+        root / ".codex-plugin" / "plugin.json",
+        root / ".claude-plugin" / "plugin.json",
+    )
+    for manifest_path in manifests:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        name = manifest.get("name")
+        version = manifest.get("version")
+        if (
+            isinstance(name, str)
+            and isinstance(version, str)
+            and root.parent.name == name
+            and root.name == version
+        ):
+            return root.parent / INSTALL_CACHE_DIRNAME
+    return None
 
 
 def _requirements_sha256(requirements_path: Path) -> str:
@@ -132,6 +163,25 @@ def resolve_venv(
         )
 
     cache_root = get_cache_root(environ=env)
+    return VenvResolution(
+        path=cache_root / "venvs" / key,
+        key=key,
+        requirements_sha256=requirements_sha256,
+        shared=True,
+        cache_root=cache_root,
+        managed=True,
+    )
+
+
+def resolve_install_venv(
+    requirements_path: Path,
+    plugin_root: Path,
+) -> VenvResolution | None:
+    """Resolve the version-independent cache beside an installed plugin."""
+    cache_root = get_install_cache_root(plugin_root)
+    if cache_root is None:
+        return None
+    key, requirements_sha256 = build_cache_key(requirements_path)
     return VenvResolution(
         path=cache_root / "venvs" / key,
         key=key,
@@ -256,7 +306,7 @@ def _create_or_repair_venv(
         if resolution.path.exists():
             shutil.rmtree(resolution.path)
 
-        print(f"创建共享虚拟环境: {resolution.path}", file=sys.stderr)
+        print(f"创建虚拟环境: {resolution.path}", file=sys.stderr)
         subprocess.check_call(
             [sys.executable, "-m", "venv", str(resolution.path)],
             stdout=sys.stderr,
@@ -295,22 +345,9 @@ def _create_or_repair_venv(
 
 
 def ensure_runtime_venv(requirements_path: Path, fallback_dir: Path) -> Path:
-    """Return a healthy shared venv Python, falling back to version-local state."""
-    resolution = resolve_venv(requirements_path)
-    try:
-        with _cache_lock(_locked_file_path(resolution)):
-            return _create_or_repair_venv(resolution, requirements_path)
-    except (OSError, TimeoutError) as exc:
-        if resolution.path == fallback_dir:
-            raise
-        print(
-            f"improve: shared virtualenv cache unavailable ({exc}); "
-            f"falling back to {fallback_dir}",
-            file=sys.stderr,
-        )
-
+    """Return a healthy venv through progressively narrower cache scopes."""
     fallback_key, requirements_sha256 = build_cache_key(requirements_path)
-    fallback = VenvResolution(
+    version_local = VenvResolution(
         path=fallback_dir,
         key=fallback_key,
         requirements_sha256=requirements_sha256,
@@ -318,5 +355,35 @@ def ensure_runtime_venv(requirements_path: Path, fallback_dir: Path) -> Path:
         cache_root=None,
         managed=True,
     )
-    with _cache_lock(_locked_file_path(fallback)):
-        return _create_or_repair_venv(fallback, requirements_path)
+    candidates = [resolve_venv(requirements_path)]
+    install_shared = resolve_install_venv(
+        requirements_path,
+        fallback_dir.parent.parent,
+    )
+    if install_shared is not None:
+        candidates.append(install_shared)
+    candidates.append(version_local)
+
+    unique_candidates: list[VenvResolution] = []
+    seen_paths: set[str] = set()
+    for candidate in candidates:
+        normalized = os.path.normcase(os.path.abspath(candidate.path))
+        if normalized not in seen_paths:
+            seen_paths.add(normalized)
+            unique_candidates.append(candidate)
+
+    for index, resolution in enumerate(unique_candidates):
+        try:
+            with _cache_lock(_locked_file_path(resolution)):
+                return _create_or_repair_venv(resolution, requirements_path)
+        except (OSError, TimeoutError) as exc:
+            if index == len(unique_candidates) - 1:
+                raise
+            next_path = unique_candidates[index + 1].path
+            print(
+                f"improve: virtualenv cache unavailable at {resolution.path} "
+                f"({exc}); trying {next_path}",
+                file=sys.stderr,
+            )
+
+    raise RuntimeError("No virtualenv cache candidate was available.")
