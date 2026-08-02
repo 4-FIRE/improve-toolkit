@@ -106,15 +106,26 @@ def test_codex_workbench_dir_created():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_skill_proposals_require_user_authorization():
+def test_memory_policy_uses_one_week_gate_and_schema_source():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_memory_test_"))
+    try:
+        data = run_hook(workdir)
+        context = data["hookSpecificOutput"]["additionalContext"]
+        assert "1 week from now" in context
+        assert "3 weeks" not in context
+        assert "`memory` tool schema is the source of truth" in context
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def test_skill_work_uses_authorized_state():
     workdir = Path(tempfile.mkdtemp(prefix="sc_skills_test_"))
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        assert "you may propose at most one skill" in context
-        assert "until the user asks or accepts" in context
-        assert "only at the proposed path" in context
-        assert "Load `improve`" in context
+        assert "load `improve`" in context
+        assert "source of truth for candidate and authorization states" in context
+        assert "reaches the authorized state" in context
         assert "writing-great-skills" in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -144,7 +155,8 @@ ALL_TESTS = [
     test_no_legacy_tmp_references,
     test_workbench_path_appears_in_run_guidance,
     test_codex_workbench_dir_created,
-    test_skill_proposals_require_user_authorization,
+    test_memory_policy_uses_one_week_gate_and_schema_source,
+    test_skill_work_uses_authorized_state,
     test_import_has_no_runtime_side_effects,
 ]
 

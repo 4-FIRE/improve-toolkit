@@ -711,30 +711,32 @@ def check_memory_requirements() -> bool:
 MEMORY_SCHEMA = {
     "name": "memory",
     "description": (
-        "Save durable information to persistent memory that survives across sessions. "
-        "Memory is shared by supported tools in the same project and injected into "
-        "future turns, so keep it compact and focused on facts "
-        "that will still matter later.\n\n"
-        "WHEN TO SAVE (do this proactively, don't wait to be asked):\n"
-        "- User corrects you or says 'remember this' / 'don't do that again'\n"
-        "- User shares a preference, habit, or personal detail (name, role, timezone, coding style)\n"
-        "- You discover something about the environment (OS, installed tools, project structure)\n"
-        "- You learn a convention, API quirk, or workflow specific to this user's setup\n"
-        "- You identify a stable fact that will be useful again in future sessions\n\n"
-        "PRIORITY: User preferences and corrections > environment facts > procedural knowledge. "
-        "The most valuable memory prevents the user from having to repeat themselves.\n\n"
-        "Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO "
-        "state to memory.\n"
-        "Do not store procedures or step-by-step workflows as memory. You may propose a "
-        "skill for a validated, non-obvious, reusable workflow, but write it only after "
-        "the user asks or accepts the concrete proposal. Then use writing-great-skills "
-        "and the host's native file tools.\n\n"
-        "TWO TARGETS:\n"
-        "- 'user': who the user is -- name, role, preferences, communication style, pet peeves\n"
-        "- 'memory': your notes -- environment facts, project conventions, tool quirks, lessons learned\n\n"
-        "ACTIONS: add (new entry), replace (update existing -- old_text identifies it), "
-        "remove (delete -- old_text identifies it).\n\n"
-        "SKIP: trivial/obvious info, things easily re-discovered, raw data dumps, and temporary task state."
+        "Curate durable, declarative facts in persistent memory shared by supported "
+        "hosts in the same project. Apply the current session's durability gate before "
+        "classifying any candidate.\n\n"
+        "SAVE PROACTIVELY WHEN:\n"
+        "- The user corrects you or explicitly asks you to remember something\n"
+        "- The user shares a stable preference, habit, role, or personal detail\n"
+        "- You discover a stable project or environment fact\n"
+        "- You learn a convention, API behavior, tool constraint, or durable root cause\n\n"
+        "PRIORITY: user corrections and preferences > stable project or environment facts "
+        "> other hard-to-rediscover facts. The highest-value entry prevents the user "
+        "from having to repeat context.\n\n"
+        "ENTRY CONTRACT:\n"
+        "- Write one declarative fact per entry; preferences may add one concise Why\n"
+        "- For long discoverable material, store the durable principle, Why, and a "
+        "source-of-truth pointer\n"
+        "- Use plain text without YAML frontmatter\n\n"
+        "TARGETS:\n"
+        "- 'user': user identity and preferences that remain true across projects\n"
+        "- 'memory': project or environment facts useful across maintainers\n\n"
+        "ACTIONS:\n"
+        "- add: append a genuinely new entry\n"
+        "- replace: update an existing entry identified by old_text\n"
+        "- remove: delete an invalid or superseded entry identified by old_text\n\n"
+        "SESSION MATERIAL: task progress, outcomes, completed-work logs, temporary TODOs, "
+        "one-off experiments, and raw data stay in the current session or their source. "
+        "Procedural workflows go to the `improve` skill's skill-candidate branch."
     ),
     "parameters": {
         "type": "object",
@@ -747,11 +749,17 @@ MEMORY_SCHEMA = {
             "target": {
                 "type": "string",
                 "enum": ["memory", "user"],
-                "description": "Which memory store: 'memory' for personal notes, 'user' for user profile."
+                "description": (
+                    "Which store to curate: 'user' for cross-project user facts and "
+                    "preferences; 'memory' for project or environment facts useful "
+                    "across maintainers."
+                )
             },
             "content": {
                 "type": "string",
-                "description": "The entry content. Required for 'add' and 'replace'."
+                "description": (
+                    "One declarative fact. Required for 'add' and 'replace'."
+                )
             },
             "old_text": {
                 "type": "string",

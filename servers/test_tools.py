@@ -74,7 +74,7 @@ if __name__ == "__main__":
 sys.path.insert(0, str(PLUGIN_DIR))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from tools.memory_tool import MemoryStore, memory_tool
+from tools.memory_tool import MEMORY_SCHEMA, MemoryStore, memory_tool
 
 
 def new_store(name: str = "default", **limits) -> MemoryStore:
@@ -228,6 +228,29 @@ def test_unknown_action_and_missing_store() -> None:
     )["error"]
 
 
+def test_memory_schema_contract() -> None:
+    description = MEMORY_SCHEMA["description"]
+    for expected in (
+        "current session's durability gate",
+        "SAVE PROACTIVELY WHEN",
+        "one declarative fact per entry",
+        "source-of-truth pointer",
+        "'user': user identity and preferences that remain true across projects",
+        "'memory': project or environment facts useful across maintainers",
+        "`improve` skill's skill-candidate branch",
+    ):
+        assert expected in description, expected
+
+    assert "workflow specific to this user's setup" not in description
+    assert "writing-great-skills" not in description
+
+    target_description = MEMORY_SCHEMA["parameters"]["properties"]["target"][
+        "description"
+    ]
+    assert "cross-project user facts" in target_description
+    assert "across maintainers" in target_description
+
+
 def test_codex_project_scoping() -> None:
     from mcp_server import get_memory_store, memory_stores, resolve_tool_project_dir
 
@@ -268,6 +291,7 @@ TESTS = [
     test_ambiguous_match_and_limits,
     test_persistence,
     test_unknown_action_and_missing_store,
+    test_memory_schema_contract,
     test_codex_project_scoping,
 ]
 
