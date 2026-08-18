@@ -2,7 +2,7 @@
 """
 MCP Server for Improve Toolkit - stdio protocol
 
-Exposes the persistent memory tool via stdio transport.
+Exposes persistent memory curation and bounded recall via stdio transport.
 """
 
 import os
@@ -60,12 +60,18 @@ import asyncio
 import json
 
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
-from tools import MemoryStore, memory_tool, MEMORY_SCHEMA
+from tools import (
+    MEMORY_RECALL_SCHEMA,
+    MEMORY_SCHEMA,
+    MemoryStore,
+    memory_recall_tool,
+    memory_tool,
+)
 from runtime_paths import get_host, get_project_dir, prepare_data_home
 from memory_migration import prepare_memories_dir
+from stdio_transport import threaded_stdio_server
 
 app = Server("improve")
 
@@ -112,6 +118,11 @@ async def list_tools():
             description=MEMORY_SCHEMA["description"],
             inputSchema=MEMORY_SCHEMA["parameters"],
         ),
+        Tool(
+            name="memory_recall",
+            description=MEMORY_RECALL_SCHEMA["description"],
+            inputSchema=MEMORY_RECALL_SCHEMA["parameters"],
+        ),
     ]
 
 
@@ -129,6 +140,31 @@ async def call_tool(name: str, arguments: dict):
             target=arguments.get("target", "memory"),
             content=arguments.get("content"),
             old_text=arguments.get("old_text"),
+            entry_id=arguments.get("entry_id"),
+            expected_revision=arguments.get("expected_revision"),
+            summary=arguments.get("summary"),
+            tags=arguments.get("tags"),
+            priority=arguments.get("priority"),
+            startup=arguments.get("startup"),
+            source=arguments.get("source"),
+            store=get_memory_store(project_dir),
+        )
+        return [TextContent(type="text", text=result)]
+
+    if name == "memory_recall":
+        try:
+            project_dir = resolve_tool_project_dir(arguments)
+        except ValueError as exc:
+            error = json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
+            return [TextContent(type="text", text=error)]
+
+        result = memory_recall_tool(
+            query=arguments.get("query", ""),
+            target=arguments.get("target", "all"),
+            limit=arguments.get("limit", 5),
+            max_chars=arguments.get("max_chars"),
+            tags_any=arguments.get("tags_any"),
+            min_priority=arguments.get("min_priority"),
             store=get_memory_store(project_dir),
         )
         return [TextContent(type="text", text=result)]
@@ -141,7 +177,7 @@ def main():
 
 
 async def run_server():
-    async with stdio_server() as (read_stream, write_stream):
+    async with threaded_stdio_server() as (read_stream, write_stream):
         await app.run(read_stream, write_stream, app.create_initialization_options())
 
 

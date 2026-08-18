@@ -13,7 +13,13 @@ RUNTIME_GITIGNORE_LINES = (
     "/workbench/",
     "/memories/*.lock",
     "/memories/.mem_*.tmp",
+    "/memories/.metadata_*.tmp",
     "/memories/.migration_*.tmp",
+    "/memories/.summary-state.json",
+    "/memories/.summary.dirty",
+    "/memories/.summary_*.tmp",
+    "/memories/.summary_dirty_*.tmp",
+    "/memories/.summary_state_*.tmp",
 )
 
 

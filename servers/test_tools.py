@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 
 PLUGIN_DIR = Path(__file__).parent
@@ -74,7 +75,13 @@ if __name__ == "__main__":
 sys.path.insert(0, str(PLUGIN_DIR))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from tools.memory_tool import MEMORY_SCHEMA, MemoryStore, memory_tool
+from tools.memory_tool import (
+    MEMORY_RECALL_SCHEMA,
+    MEMORY_SCHEMA,
+    MemoryStore,
+    memory_recall_tool,
+    memory_tool,
+)
 
 
 def new_store(name: str = "default", **limits) -> MemoryStore:
@@ -152,24 +159,35 @@ def test_security_validation() -> None:
 
 def test_replace_and_remove() -> None:
     store = new_store("mutations")
-    assert_success(memory_tool("add", "memory", "Original entry text", store=store))
+    added = assert_success(
+        memory_tool("add", "memory", "Original entry text", store=store)
+    )
     replaced = assert_success(
         memory_tool(
             "replace",
             "memory",
             content="Updated entry",
-            old_text="Original entry",
+            entry_id=added["entry_id"],
+            expected_revision=added["revision"],
             store=store,
         ),
         "Entry replaced.",
     )
-    assert replaced["entries"] == ["Updated entry"]
+    assert replaced["entry_id"] == added["entry_id"]
+    assert "entries" not in replaced
 
     removed = assert_success(
-        memory_tool("remove", "memory", old_text="Updated", store=store),
+        memory_tool(
+            "remove",
+            "memory",
+            entry_id=replaced["entry_id"],
+            expected_revision=replaced["revision"],
+            store=store,
+        ),
         "Entry removed.",
     )
-    assert removed["entries"] == []
+    assert removed["entry_id"] == added["entry_id"]
+    assert "entries" not in removed
     assert_failure(
         memory_tool("remove", "memory", old_text="missing", store=store),
         "No entry matched",
@@ -228,6 +246,28 @@ def test_unknown_action_and_missing_store() -> None:
     )["error"]
 
 
+def test_recall_returns_relevant_compact_results() -> None:
+    store = new_store("recall")
+    assert_success(memory_tool("add", "memory", "Release manifests share one version", store=store))
+    assert_success(memory_tool("add", "memory", "Windows launchers inherit stdio", store=store))
+
+    result = assert_success(
+        memory_recall_tool(
+            query="release manifest version",
+            target="all",
+            limit=1,
+            max_chars=200,
+            store=store,
+        )
+    )
+
+    assert len(result["entries"]) == 1
+    assert result["entries"][0]["content"].startswith("Release manifests")
+    assert result["entries"][0]["entry_id"].startswith("m:")
+    assert result["revision"].startswith("sha256:")
+    assert MEMORY_RECALL_SCHEMA["parameters"]["required"] == ["query"]
+
+
 def test_memory_schema_contract() -> None:
     description = MEMORY_SCHEMA["description"]
     for expected in (
@@ -235,9 +275,10 @@ def test_memory_schema_contract() -> None:
         "SAVE PROACTIVELY WHEN",
         "one declarative fact per entry",
         "source-of-truth pointer",
-        "'user': user identity and preferences that remain true across projects",
+        "'user': user identity and preferences relevant within this project",
         "'memory': project or environment facts useful across maintainers",
         "`improve` skill's skill-candidate branch",
+        "recall related memory before replace or remove",
     ):
         assert expected in description, expected
 
@@ -247,8 +288,24 @@ def test_memory_schema_contract() -> None:
     target_description = MEMORY_SCHEMA["parameters"]["properties"]["target"][
         "description"
     ]
-    assert "cross-project user facts" in target_description
+    assert "project-scoped user facts" in target_description
     assert "across maintainers" in target_description
+
+    properties = MEMORY_SCHEMA["parameters"]["properties"]
+    for expected in (
+        "entry_id",
+        "expected_revision",
+        "summary",
+        "tags",
+        "priority",
+        "startup",
+        "source",
+    ):
+        assert expected in properties
+
+    recall_properties = MEMORY_RECALL_SCHEMA["parameters"]["properties"]
+    for expected in ("query", "target", "limit", "max_chars", "tags_any", "min_priority"):
+        assert expected in recall_properties
 
 
 def test_codex_project_scoping() -> None:
@@ -284,6 +341,24 @@ def test_codex_project_scoping() -> None:
             os.environ["IMPROVE_HOST"] = old_host
 
 
+def test_store_uses_configured_storage_limits() -> None:
+    root = Path(os.environ[TEST_DIR_ENV]) / "configured-limits"
+    with patch.dict(
+        os.environ,
+        {
+            "IMPROVE_MEMORY_CHAR_LIMIT": "9000",
+            "IMPROVE_USER_CHAR_LIMIT": "4000",
+        },
+    ):
+        store = MemoryStore(
+            data_home=root / ".improve-toolkit",
+            memory_dir=root / ".improve-toolkit" / "memories",
+        )
+
+    assert store.memory_char_limit == 9000
+    assert store.user_char_limit == 4000
+
+
 TESTS = [
     test_add_and_validation,
     test_security_validation,
@@ -291,8 +366,10 @@ TESTS = [
     test_ambiguous_match_and_limits,
     test_persistence,
     test_unknown_action_and_missing_store,
+    test_recall_returns_relevant_compact_results,
     test_memory_schema_contract,
     test_codex_project_scoping,
+    test_store_uses_configured_storage_limits,
 ]
 
 

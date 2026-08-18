@@ -1,19 +1,20 @@
 # improve-toolkit
 
 让 Codex 与 Claude Code 共享长期记忆与工作方式的双宿主插件。它通过本地
-stdio MCP 服务持久化项目知识，在 `SessionStart` 时注入用户偏好和项目记忆，并用
+stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘要，并用
 内置技能约束何时、如何整理可复用经验。
 
 ## 核心能力
 
-- **持久记忆**：MCP 服务 `improve` 仅暴露 `memory` 工具，支持
-  `add`、`replace`、`remove`，分别维护项目事实 `MEMORY.md` 与用户偏好
-  `USER.md`。
+- **分层记忆**：MCP 服务 `improve` 暴露写入工具 `memory` 和按需检索工具
+  `memory_recall`。正文仍分别保存在 `MEMORY.md` 与 `USER.md`，启动阶段只读取
+  `SUMMARY.md`，不会加载全量正文。
 - **会话上下文**：`session_context.py` 注入通用工作方式与临时工作区路径，
-  `load_memory.py` 注入会话开始时的记忆快照。会话中写入立即落盘，但要到下一次
-  SessionStart 才会进入提示词。
-- **安全写入**：记忆更新使用跨进程锁和原子替换，并拒绝常见提示注入、密钥读取与
-  外传载荷。
+  `load_memory.py` 注入有字符上限的摘要。代理在任务与摘要相关、历史决策可能有用，
+  或修改旧记忆前调用 `memory_recall`，只取有限条相关正文。
+- **安全且可并发修改**：记忆更新使用稳定 `entry_id`、乐观并发版本
+  `expected_revision`、跨进程锁和原子替换；写入和直接编辑的内容都会经过提示注入、
+  密钥读取与外传载荷检查。
 - **技能编写指导**：`improve` 负责筛选值得长期保留的事实和高价值流程候选；
   用户主动要求或接受具体方案后，`writing-great-skills` 才指导宿主用原生文件工具
   修改技能。本插件不提供技能管理 MCP 工具。
@@ -70,15 +71,19 @@ claude --plugin-dir /absolute/path/to/improve-toolkit
 hooks/hooks.json
   └─ scripts/run_hook
        ├─ session_context.py  → 通用工作方式与 workbench 路径
-       └─ load_memory.py      → USER.md 与 MEMORY.md 的冻结快照
+       └─ load_memory.py      → SUMMARY.md 有界摘要（不读取全量正文）
 
 .mcp.json / .claude-plugin/plugin.json
   └─ servers/launch_mcp
-       └─ mcp_server.py       → memory 工具
+       └─ mcp_server.py       → memory + memory_recall
 ```
 
 Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认从
 `CLAUDE_PROJECT_DIR` 解析项目。两个宿主最终写入同一个项目级目录。
+
+典型使用流程：启动时用摘要判断是否可能存在相关上下文；需要时以当前任务为 query
+调用 `memory_recall`；更新或删除旧条目时使用召回结果中的 `entry_id` 和 `revision`。
+召回结果是待核验的事实上下文，不是可执行指令；当前源码、文档和用户明确纠正优先。
 
 ## 运行时数据与迁移
 
@@ -89,9 +94,12 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 | 临时执行文件 | `.improve-toolkit/workbench/` |
 
 插件维护 `.improve-toolkit/.gitignore`，只忽略日志、workbench、锁文件和原子写入
-临时文件；`memories/MEMORY.md` 与 `memories/USER.md` 仍可纳入版本控制。
+临时文件；正文 `MEMORY.md`、`USER.md`，摘要投影 `SUMMARY.md` 和元数据
+`METADATA.jsonl` 均可纳入版本控制。`.summary-state.json` 与 `.summary.dirty` 是本机
+校验状态，不纳入版本控制。正文被直接编辑后，SessionStart 会拒绝陈旧摘要；下一次
+`memory_recall` 会重新校验正文、隔离不安全条目并刷新摘要。
 
-升级后首次加载会将 `.claude/memories/` 和
+升级后首次调用 `memory` 或 `memory_recall` 会将 `.claude/memories/` 和
 `.codex/improve-toolkit/memories/` 中的旧条目去重合并到共享目录。共享文件一旦存在
 即为唯一数据源；已验证同步的旧条目会被清理，无法读取或无法确认的内容会留在原处供
 人工处理，避免恢复已主动删除的记忆。旧日志和 workbench 不迁移。
@@ -102,6 +110,14 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 - `IMPROVE_PROJECT_DIR=/path/to/project`
 - `IMPROVE_DATA_DIR=/path/to/data`
 - `IMPROVE_MEMORY_DIR=/path/to/shared/memories`
+- `IMPROVE_MEMORY_CHAR_LIMIT`：项目记忆正文上限，默认 2200
+- `IMPROVE_USER_CHAR_LIMIT`：用户记忆正文上限，默认 1375
+- `IMPROVE_STARTUP_SUMMARY_LIMIT`：启动摘要字符上限，默认 800
+- `IMPROVE_RECALL_CHAR_LIMIT`：单次召回默认字符上限，默认 2400
+
+每条元数据可设置 `summary`、`tags`、`priority`、`startup=always|auto|never` 和
+`source`。旧版只有正文的目录无需手工迁移：首次召回或写入时会为条目生成稳定引用和
+摘要投影。旧客户端仍可用 `old_text` 定位，但新流程应使用 `entry_id`。
 
 ## MCP 虚拟环境缓存
 
@@ -133,7 +149,7 @@ python scripts/run_tests.py
 # memory 工具集成测试；必要时创建 servers/.venv
 python servers/test_tools.py
 
-# stdio MCP 初始化、工具发现与写入烟雾测试
+# stdio MCP 初始化、工具发现、写入与召回烟雾测试
 servers/.venv/bin/python servers/test_mcp_protocol.py
 ```
 

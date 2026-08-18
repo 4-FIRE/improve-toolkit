@@ -44,6 +44,17 @@ def test_improve_discloses_skill_candidate_branch() -> None:
     assert SKILL_CANDIDATES.is_file()
 
 
+def test_recall_contract_is_shared_by_session_and_curation() -> None:
+    session = read(SESSION_CONTEXT)
+    skill = read(IMPROVE_SKILL)
+
+    assert "Call `memory_recall`" in session
+    assert "current sources and explicit user corrections take priority" in session
+    assert "调用 `memory_recall`" in skill
+    assert "`entry_id` 与 `revision`" in skill
+    assert "`REVISION_CONFLICT`" in skill
+
+
 def test_skill_candidate_policy_is_exhaustive() -> None:
     policy = read(SKILL_CANDIDATES)
     assert "候选必须同时满足四项" in policy
@@ -57,6 +68,7 @@ def test_skill_candidate_policy_is_exhaustive() -> None:
 ALL_TESTS = [
     test_durability_gate_has_one_source,
     test_improve_discloses_skill_candidate_branch,
+    test_recall_contract_is_shared_by_session_and_curation,
     test_skill_candidate_policy_is_exhaustive,
 ]
 

@@ -62,7 +62,13 @@ logs/
 .improve-toolkit/workbench/
 .improve-toolkit/memories/*.lock
 .improve-toolkit/memories/.mem_*.tmp
+.improve-toolkit/memories/.metadata_*.tmp
 .improve-toolkit/memories/.migration_*.tmp
+.improve-toolkit/memories/.summary-state.json
+.improve-toolkit/memories/.summary.dirty
+.improve-toolkit/memories/.summary_*.tmp
+.improve-toolkit/memories/.summary_dirty_*.tmp
+.improve-toolkit/memories/.summary_state_*.tmp
 .codex/improve-toolkit/
 
 .claude/sessions/
