@@ -15,9 +15,11 @@ lives in `.codex-plugin/`, `.claude-plugin/`, `.mcp.json`, and
 
 Runtime data belongs to the consuming project under
 `.improve-toolkit/{memories,logs,workbench}`. By default the plugin writes a
-nested `.gitignore` that ignores the entire runtime directory, so memory is
-local-only and not synced via git. Projects can opt back into version-controlled
-memory with `IMPROVE_TRACK_MEMORIES=1`.
+nested `.gitignore` that ignores the entire runtime directory — including its
+own `.gitignore` file — so `.improve-toolkit/` is invisible to git and memory is
+local-only, not synced. The ignore file is recreated at every SessionStart.
+Projects can opt back into version-controlled memory with
+`IMPROVE_TRACK_MEMORIES=1`.
 
 ## Build, Test, and Development Commands
 

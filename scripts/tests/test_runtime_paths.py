@@ -108,7 +108,7 @@ def test_prepare_data_home_creates_local_gitignore():
         for line in RUNTIME_GITIGNORE_LOCAL:
             assert line in lines
         assert "*" in lines
-        assert "!.gitignore" in lines
+        assert "!.gitignore" not in lines
         assert "/memories/" not in lines
         assert ".improve-toolkit/" not in lines
 
@@ -135,6 +135,7 @@ def test_prepare_data_home_switches_between_modes():
             prepare_data_home()
             lines = ignore_path.read_text(encoding="utf-8").splitlines()
         assert "*" in lines
+        assert "!.gitignore" not in lines
 
         with patch.dict(
             os.environ,
@@ -151,6 +152,7 @@ def test_prepare_data_home_switches_between_modes():
             lines = ignore_path.read_text(encoding="utf-8").splitlines()
         assert "*" in lines
         assert "/workbench/" not in lines
+        assert "!.gitignore" not in lines
 
 
 def test_repository_runtime_gitignore_matches_generated_rules():
