@@ -93,11 +93,15 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 | 操作与审计日志 | `.improve-toolkit/logs/` |
 | 临时执行文件 | `.improve-toolkit/workbench/` |
 
-插件维护 `.improve-toolkit/.gitignore`，只忽略日志、workbench、锁文件和原子写入
-临时文件；正文 `MEMORY.md`、`USER.md`，摘要投影 `SUMMARY.md` 和元数据
-`METADATA.jsonl` 均可纳入版本控制。`.summary-state.json` 与 `.summary.dirty` 是本机
-校验状态，不纳入版本控制。正文被直接编辑后，SessionStart 会拒绝陈旧摘要；下一次
-`memory_recall` 会重新校验正文、隔离不安全条目并刷新摘要。
+插件默认维护 `.improve-toolkit/.gitignore`，忽略整个运行时目录，因此记忆、日志和
+workbench 都是本机数据，默认不随 git 同步。`.gitignore` 本身仍可纳入版本控制，
+克隆后规则自动生效。若希望记忆纳入版本控制，可在该项目设置
+`IMPROVE_TRACK_MEMORIES=1`，此时只忽略日志、workbench、锁文件和原子写入临时文件，
+正文 `MEMORY.md`、`USER.md`、摘要投影 `SUMMARY.md` 和元数据 `METADATA.jsonl`
+均可跟踪。`.summary-state.json` 与 `.summary.dirty` 是本机校验状态，两种模式下都
+不纳入版本控制。已提交过记忆文件的存量项目不会被自动停止跟踪，需手动执行
+`git rm -r --cached .improve-toolkit`。正文被直接编辑后，SessionStart 会拒绝陈旧
+摘要；下一次 `memory_recall` 会重新校验正文、隔离不安全条目并刷新摘要。
 
 升级后首次调用 `memory` 或 `memory_recall` 会将 `.claude/memories/` 和
 `.codex/improve-toolkit/memories/` 中的旧条目去重合并到共享目录。共享文件一旦存在
@@ -110,6 +114,7 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 - `IMPROVE_PROJECT_DIR=/path/to/project`
 - `IMPROVE_DATA_DIR=/path/to/data`
 - `IMPROVE_MEMORY_DIR=/path/to/shared/memories`
+- `IMPROVE_TRACK_MEMORIES=1`：记忆纳入版本控制（默认忽略整个 `.improve-toolkit`）
 - `IMPROVE_MEMORY_CHAR_LIMIT`：项目记忆正文上限，默认 2200
 - `IMPROVE_USER_CHAR_LIMIT`：用户记忆正文上限，默认 1375
 - `IMPROVE_STARTUP_SUMMARY_LIMIT`：启动摘要字符上限，默认 800

@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from runtime_paths import (
-    RUNTIME_GITIGNORE_LINES,
+    RUNTIME_GITIGNORE_LOCAL,
+    RUNTIME_GITIGNORE_TRACKED,
     get_data_home,
     get_host,
     get_legacy_memories_dirs,
@@ -86,7 +87,7 @@ def test_memory_override():
         assert get_legacy_memories_dirs() == ()
 
 
-def test_prepare_data_home_creates_narrow_gitignore():
+def test_prepare_data_home_creates_local_gitignore():
     with tempfile.TemporaryDirectory(prefix="rp_prepare_") as workdir:
         env = {"IMPROVE_PROJECT_DIR": workdir}
         data_home = Path(workdir) / ".improve-toolkit"
@@ -103,17 +104,60 @@ def test_prepare_data_home_creates_narrow_gitignore():
         assert first == second
         assert "# user rule" in first
         assert "/custom/" in first
-        for line in RUNTIME_GITIGNORE_LINES:
-            assert line in first.splitlines()
-        assert "/memories/" not in first.splitlines()
-        assert ".improve-toolkit/" not in first.splitlines()
+        lines = first.splitlines()
+        for line in RUNTIME_GITIGNORE_LOCAL:
+            assert line in lines
+        assert "*" in lines
+        assert "!.gitignore" in lines
+        assert "/memories/" not in lines
+        assert ".improve-toolkit/" not in lines
+
+
+def test_prepare_data_home_track_memories_override():
+    with tempfile.TemporaryDirectory(prefix="rp_track_") as workdir:
+        env = {"IMPROVE_PROJECT_DIR": workdir, "IMPROVE_TRACK_MEMORIES": "1"}
+        with patch.dict(os.environ, env, clear=True):
+            data_home = prepare_data_home()
+            lines = (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+        assert "*" not in lines
+        assert "/workbench/" in lines
+        assert "/memories/*.lock" in lines
+        for line in RUNTIME_GITIGNORE_TRACKED:
+            assert line in lines
+
+
+def test_prepare_data_home_switches_between_modes():
+    with tempfile.TemporaryDirectory(prefix="rp_switch_") as workdir:
+        ignore_path = Path(workdir) / ".improve-toolkit" / ".gitignore"
+
+        with patch.dict(os.environ, {"IMPROVE_PROJECT_DIR": workdir}, clear=True):
+            prepare_data_home()
+            lines = ignore_path.read_text(encoding="utf-8").splitlines()
+        assert "*" in lines
+
+        with patch.dict(
+            os.environ,
+            {"IMPROVE_PROJECT_DIR": workdir, "IMPROVE_TRACK_MEMORIES": "1"},
+            clear=True,
+        ):
+            prepare_data_home()
+            lines = ignore_path.read_text(encoding="utf-8").splitlines()
+        assert "*" not in lines
+        assert "/workbench/" in lines
+
+        with patch.dict(os.environ, {"IMPROVE_PROJECT_DIR": workdir}, clear=True):
+            prepare_data_home()
+            lines = ignore_path.read_text(encoding="utf-8").splitlines()
+        assert "*" in lines
+        assert "/workbench/" not in lines
 
 
 def test_repository_runtime_gitignore_matches_generated_rules():
     repository_root = Path(__file__).resolve().parents[2]
     ignore_path = repository_root / ".improve-toolkit" / ".gitignore"
     assert tuple(ignore_path.read_text(encoding="utf-8").splitlines()) == (
-        RUNTIME_GITIGNORE_LINES
+        RUNTIME_GITIGNORE_LOCAL
     )
 
 
@@ -123,7 +167,9 @@ ALL_TESTS = [
     test_codex_plugin_root_detection,
     test_path_overrides,
     test_memory_override,
-    test_prepare_data_home_creates_narrow_gitignore,
+    test_prepare_data_home_creates_local_gitignore,
+    test_prepare_data_home_track_memories_override,
+    test_prepare_data_home_switches_between_modes,
     test_repository_runtime_gitignore_matches_generated_rules,
 ]
 

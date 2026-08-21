@@ -101,7 +101,9 @@ def test_codex_workbench_dir_created():
         assert "Claude Code Persona" not in context
         ignore_file = workdir / ".improve-toolkit" / ".gitignore"
         assert ignore_file.is_file()
-        assert "/workbench/" in ignore_file.read_text(encoding="utf-8")
+        ignore_text = ignore_file.read_text(encoding="utf-8")
+        assert "*" in ignore_text
+        assert "!.gitignore" in ignore_text
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

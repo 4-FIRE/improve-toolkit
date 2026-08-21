@@ -57,18 +57,8 @@ logs/
 *.temp
 .cache/
 
-# Shared runtime state. .improve-toolkit/memories/*.md stays trackable.
-.improve-toolkit/logs/
-.improve-toolkit/workbench/
-.improve-toolkit/memories/*.lock
-.improve-toolkit/memories/.mem_*.tmp
-.improve-toolkit/memories/.metadata_*.tmp
-.improve-toolkit/memories/.migration_*.tmp
-.improve-toolkit/memories/.summary-state.json
-.improve-toolkit/memories/.summary.dirty
-.improve-toolkit/memories/.summary_*.tmp
-.improve-toolkit/memories/.summary_dirty_*.tmp
-.improve-toolkit/memories/.summary_state_*.tmp
+# Runtime state is local-only by default: .improve-toolkit/.gitignore ignores
+# the whole directory. .codex/improve-toolkit/ is the legacy pre-shared memory path.
 .codex/improve-toolkit/
 
 .claude/sessions/

@@ -14,8 +14,10 @@ lives in `.codex-plugin/`, `.claude-plugin/`, `.mcp.json`, and
   tests, launchers, and exact dependency pins.
 
 Runtime data belongs to the consuming project under
-`.improve-toolkit/{memories,logs,workbench}`. Do not ignore the entire runtime
-directory: memory Markdown files are intentionally trackable.
+`.improve-toolkit/{memories,logs,workbench}`. By default the plugin writes a
+nested `.gitignore` that ignores the entire runtime directory, so memory is
+local-only and not synced via git. Projects can opt back into version-controlled
+memory with `IMPROVE_TRACK_MEMORIES=1`.
 
 ## Build, Test, and Development Commands
 
