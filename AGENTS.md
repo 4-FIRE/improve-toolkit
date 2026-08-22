@@ -66,6 +66,5 @@ Screenshots are only useful for visible host UI changes.
 
 Document new `IMPROVE_*` overrides and avoid committing logs, caches, virtual
 environments, or secrets. Release version bumps must stay synchronized across
-`.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, and
-`.claude-plugin/marketplace.json`. `CLAUDE.md` links here; edit this file as the
+`.codex-plugin/plugin.json` and `.claude-plugin/plugin.json`. `CLAUDE.md` links here; edit this file as the
 single contributor-guide source.
