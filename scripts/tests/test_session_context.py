@@ -128,7 +128,7 @@ def test_skill_work_uses_authorized_state():
         assert "load `improve`" in context
         assert "source of truth for candidate and authorization states" in context
         assert "reaches the authorized state" in context
-        assert "writing-great-skills" in context
+        assert "writing-for-agents" in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

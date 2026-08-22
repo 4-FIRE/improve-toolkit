@@ -16,7 +16,7 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
   `expected_revision`、跨进程锁和原子替换；写入和直接编辑的内容都会经过提示注入、
   密钥读取与外传载荷检查。
 - **技能编写指导**：`improve` 负责筛选值得长期保留的事实和高价值流程候选；
-  用户主动要求或接受具体方案后，`writing-great-skills` 才指导宿主用原生文件工具
+  用户主动要求或接受具体方案后，`writing-for-agents` 才指导宿主用原生文件工具
   修改技能。本插件不提供技能管理 MCP 工具。
 - **双宿主兼容**：技能、钩子、运行时状态和 MCP 实现由 Codex 与 Claude Code
   共用，并提供 POSIX 与 Windows 启动脚本。

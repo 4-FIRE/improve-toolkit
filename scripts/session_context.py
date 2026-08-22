@@ -46,7 +46,7 @@ The `memory` tool schema is the source of truth for save triggers, entry format,
 
 At task completion, or when the user requests skill work, load `improve`; it is
 the source of truth for candidate and authorization states. Once `improve`
-reaches the authorized state, load `writing-great-skills` and use the host's
+reaches the authorized state, load `writing-for-agents` and use the host's
 native file tools.
 
 ### Solving with code

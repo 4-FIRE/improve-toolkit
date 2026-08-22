@@ -283,7 +283,7 @@ def test_memory_schema_contract() -> None:
         assert expected in description, expected
 
     assert "workflow specific to this user's setup" not in description
-    assert "writing-great-skills" not in description
+    assert "writing-for-agents" not in description
 
     target_description = MEMORY_SCHEMA["parameters"]["properties"]["target"][
         "description"

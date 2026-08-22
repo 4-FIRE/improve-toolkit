@@ -34,7 +34,7 @@
     "defaultPrompt": [
       "回顾本轮工作，把值得长期保留的事实沉淀为记忆。",
       "读取已有记忆，再继续处理当前项目。",
-      "用 writing-great-skills 指导我把刚才的流程整理成可复用技能。"
+      "用 writing-for-agents 指导我把刚才的流程整理成可复用技能。"
     ],
     "brandColor": "#10A37F"
   }
