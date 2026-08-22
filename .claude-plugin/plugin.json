@@ -1,7 +1,7 @@
 {
     "name": "improve-toolkit",
     "description": "让 Claude Code 持续进化的插件：通过持久记忆 MCP、技能编写指导与 SessionStart 上下文，构建能累积经验、自我改进的助手。",
-    "version": "1.0.18",
+    "version": "1.0.19",
     "author": {
         "name": "qiyan"
     },
