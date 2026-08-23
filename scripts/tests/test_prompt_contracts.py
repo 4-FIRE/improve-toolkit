@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 IMPROVE_SKILL = ROOT / "skills" / "improve" / "SKILL.md"
 SKILL_CANDIDATES = ROOT / "skills" / "improve" / "SKILL-CANDIDATES.md"
 SESSION_CONTEXT = ROOT / "scripts" / "session_context.py"
-MEMORY_TOOL = ROOT / "servers" / "tools" / "memory_tool.py"
+MEMORY_TOOL = ROOT / "servers" / "memory" / "tools.py"
 
 
 def read(path: Path) -> str:
@@ -24,7 +24,7 @@ def test_durability_gate_has_one_source() -> None:
         "session_context": read(SESSION_CONTEXT),
         "improve": read(IMPROVE_SKILL),
         "skill_candidates": read(SKILL_CANDIDATES),
-        "memory_tool": read(MEMORY_TOOL),
+        "memory_tools": read(MEMORY_TOOL),
     }
     pattern = re.compile(r"(?:1|3) weeks?|[一三]周")
     matches = {

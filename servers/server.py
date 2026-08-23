@@ -62,23 +62,23 @@ import json
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 
-from tools import (
+from memory import (
     MEMORY_RECALL_SCHEMA,
     MEMORY_SCHEMA,
     MemoryStore,
-    memory_recall_tool,
-    memory_tool,
+    mutate_memory,
+    recall_memory,
 )
 from runtime_paths import get_host, get_project_dir, prepare_data_home
 from memory_migration import prepare_memories_dir
-from stdio_transport import threaded_stdio_server
+from transport import stdio_server
 
 app = Server("improve")
 
 memory_stores = {}
 
 
-def resolve_tool_project_dir(arguments: dict) -> Path:
+def resolve_project_dir(arguments: dict) -> Path:
     """Resolve and validate the workspace root used by a stateful tool call."""
     raw_project_dir = arguments.get("project_dir")
     if not raw_project_dir:
@@ -130,12 +130,12 @@ async def list_tools():
 async def call_tool(name: str, arguments: dict):
     if name == "memory":
         try:
-            project_dir = resolve_tool_project_dir(arguments)
+            project_dir = resolve_project_dir(arguments)
         except ValueError as exc:
             error = json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
             return [TextContent(type="text", text=error)]
 
-        result = memory_tool(
+        result = mutate_memory(
             action=arguments.get("action", ""),
             target=arguments.get("target", "memory"),
             content=arguments.get("content"),
@@ -153,12 +153,12 @@ async def call_tool(name: str, arguments: dict):
 
     if name == "memory_recall":
         try:
-            project_dir = resolve_tool_project_dir(arguments)
+            project_dir = resolve_project_dir(arguments)
         except ValueError as exc:
             error = json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
             return [TextContent(type="text", text=error)]
 
-        result = memory_recall_tool(
+        result = recall_memory(
             query=arguments.get("query", ""),
             target=arguments.get("target", "all"),
             limit=arguments.get("limit", 5),
@@ -177,7 +177,7 @@ def main():
 
 
 async def run_server():
-    async with threaded_stdio_server() as (read_stream, write_stream):
+    async with stdio_server() as (read_stream, write_stream):
         await app.run(read_stream, write_stream, app.create_initialization_options())
 
 

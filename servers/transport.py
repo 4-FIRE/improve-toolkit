@@ -19,18 +19,18 @@ from mcp.shared.message import SessionMessage
 T = TypeVar("T")
 
 
-class _QueueReceiveStream(Generic[T]):
+class _ReceiveStream(Generic[T]):
     def __init__(self, queue: asyncio.Queue[T | None]) -> None:
         self._queue = queue
         self._closed = False
 
-    async def __aenter__(self) -> "_QueueReceiveStream[T]":
+    async def __aenter__(self) -> "_ReceiveStream[T]":
         return self
 
     async def __aexit__(self, *_args) -> None:
         await self.aclose()
 
-    def __aiter__(self) -> "_QueueReceiveStream[T]":
+    def __aiter__(self) -> "_ReceiveStream[T]":
         return self
 
     async def __anext__(self) -> T:
@@ -51,12 +51,12 @@ class _QueueReceiveStream(Generic[T]):
             self._queue.put_nowait(None)
 
 
-class _QueueSendStream(Generic[T]):
+class _SendStream(Generic[T]):
     def __init__(self, output_queue: queue.Queue[T | None]) -> None:
         self._queue = output_queue
         self._closed = False
 
-    async def __aenter__(self) -> "_QueueSendStream[T]":
+    async def __aenter__(self) -> "_SendStream[T]":
         return self
 
     async def __aexit__(self, *_args) -> None:
@@ -74,10 +74,10 @@ class _QueueSendStream(Generic[T]):
 
 
 @asynccontextmanager
-async def threaded_stdio_server() -> AsyncIterator[
+async def stdio_server() -> AsyncIterator[
     tuple[
-        _QueueReceiveStream[SessionMessage | Exception],
-        _QueueSendStream[SessionMessage],
+        _ReceiveStream[SessionMessage | Exception],
+        _SendStream[SessionMessage],
     ]
 ]:
     """Expose MCP streams with blocking UTF-8 stdio and thread-safe queues.
@@ -91,8 +91,8 @@ async def threaded_stdio_server() -> AsyncIterator[
     """
     incoming: asyncio.Queue[SessionMessage | Exception | None] = asyncio.Queue()
     outgoing: queue.Queue[SessionMessage | None] = queue.Queue()
-    read_stream = _QueueReceiveStream(incoming)
-    write_stream = _QueueSendStream(outgoing)
+    read_stream = _ReceiveStream(incoming)
+    write_stream = _SendStream(outgoing)
     loop = asyncio.get_running_loop()
     stdin_fd = sys.stdin.fileno()
     stdin_buffer = bytearray()

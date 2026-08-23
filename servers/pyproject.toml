@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-improve = "mcp_server:main"
+improve = "server:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -75,7 +75,7 @@ hooks/hooks.json
 
 .mcp.json / .claude-plugin/plugin.json
   └─ servers/launch_mcp
-       └─ mcp_server.py       → memory + memory_recall
+       └─ server.py           → memory + memory_recall
 ```
 
 Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认从
