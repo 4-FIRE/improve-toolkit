@@ -102,6 +102,16 @@ def load_config(project_dir: Path | str | None = None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+_DEFAULT_CONFIG = {"track_memories": False}
+
+
+def _ensure_config(data_home: Path) -> None:
+    """Create a default config.json so the track_memories flag is discoverable."""
+    config_path = data_home / "config.json"
+    if not config_path.exists():
+        config_path.write_text(json.dumps(_DEFAULT_CONFIG, indent=2) + "\n", encoding="utf-8")
+
+
 def prepare_data_home(project_dir: Path | str | None = None) -> Path:
     """Create the shared runtime root and its local ignore rules.
 
@@ -109,15 +119,17 @@ def prepare_data_home(project_dir: Path | str | None = None) -> Path:
     including its own .gitignore file — so .improve-toolkit/ never shows up in
     git status and memories are not synced via git. The plugin recreates the
     ignore file at every SessionStart. Projects that want memory
-    version-controlled can set IMPROVE_TRACK_MEMORIES=1 or drop a
-    .improve-toolkit/config.json with {"track_memories": true} to switch to
-    narrow rules that keep MEMORY.md and USER.md trackable. The generated
+    version-controlled can set IMPROVE_TRACK_MEMORIES=1 or flip the
+    .improve-toolkit/config.json "track_memories" flag to true to switch to
+    narrow rules that keep MEMORY.md and USER.md trackable. A default
+    config.json (track_memories: false) is created when absent. The generated
     section is rebuilt when the mode changes; existing custom rules are
     preserved.
     """
     project_dir = Path(project_dir).expanduser() if project_dir is not None else get_project_dir()
     data_home = get_data_home(project_dir)
     data_home.mkdir(parents=True, exist_ok=True)
+    _ensure_config(data_home)
     active = _runtime_gitignore_lines(project_dir)
     ignore_path = data_home / ".gitignore"
     existing = ignore_path.read_text(encoding="utf-8") if ignore_path.exists() else ""

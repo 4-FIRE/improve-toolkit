@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for shared Improve Toolkit runtime paths."""
 
+import json
 import os
 import sys
 import tempfile
@@ -258,6 +259,19 @@ def test_prepare_data_home_config_switch_back():
             assert "!.gitignore" not in lines
 
 
+def test_prepare_data_home_creates_default_config():
+    with tempfile.TemporaryDirectory(prefix="rp_cfg_default_") as workdir:
+        env = {"IMPROVE_PROJECT_DIR": workdir}
+        with patch.dict(os.environ, env, clear=True):
+            data_home = prepare_data_home()
+            config_path = data_home / "config.json"
+            assert config_path.is_file()
+            assert json.loads(config_path.read_text(encoding="utf-8")) == {
+                "track_memories": False
+            }
+            assert "*" in (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
 ALL_TESTS = [
     test_claude_defaults,
     test_codex_defaults,
@@ -273,6 +287,7 @@ ALL_TESTS = [
     test_prepare_data_home_config_malformed_ignored,
     test_prepare_data_home_env_overrides_config,
     test_prepare_data_home_config_switch_back,
+    test_prepare_data_home_creates_default_config,
 ]
 
 
