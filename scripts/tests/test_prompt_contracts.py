@@ -38,7 +38,7 @@ def test_durability_gate_has_one_source() -> None:
 def test_improve_discloses_skill_candidate_branch() -> None:
     skill = read(IMPROVE_SKILL)
     assert "[`SKILL-CANDIDATES.md`](SKILL-CANDIDATES.md)" in skill
-    assert "`memory` 工具 schema 是保存触发、条目格式、target 和 action 的唯一事实源" in skill
+    assert "`memory` 工具的 schema 是保存触发、条目格式、target 和 action 的唯一事实源" in skill
     for classification in ("`add`", "`replace`", "`remove`", "`no-op`", "`reject`"):
         assert classification in skill
     assert SKILL_CANDIDATES.is_file()
