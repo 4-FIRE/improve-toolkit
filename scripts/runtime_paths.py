@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -33,9 +34,17 @@ RUNTIME_GITIGNORE_LINES = RUNTIME_GITIGNORE_LOCAL
 _TRACK_MEMORIES_VALUES = {"1", "true", "yes", "on"}
 
 
-def _runtime_gitignore_lines() -> tuple[str, ...]:
-    """Return the generated .gitignore lines for the active memory mode."""
-    if os.environ.get("IMPROVE_TRACK_MEMORIES", "").strip().lower() in _TRACK_MEMORIES_VALUES:
+def _runtime_gitignore_lines(project_dir: Path | str | None = None) -> tuple[str, ...]:
+    """Return the generated .gitignore lines for the active memory mode.
+
+    An explicitly-set ``IMPROVE_TRACK_MEMORIES`` env var wins; otherwise the
+    per-repo ``.improve-toolkit/config.json`` ``track_memories`` flag selects
+    the tracked set, falling back to local-only when unset or false.
+    """
+    env = os.environ.get("IMPROVE_TRACK_MEMORIES", "").strip().lower()
+    if env:
+        return RUNTIME_GITIGNORE_TRACKED if env in _TRACK_MEMORIES_VALUES else RUNTIME_GITIGNORE_LOCAL
+    if load_config(project_dir).get("track_memories") is True:
         return RUNTIME_GITIGNORE_TRACKED
     return RUNTIME_GITIGNORE_LOCAL
 
@@ -83,6 +92,16 @@ def get_data_home(project_dir: Path | str | None = None) -> Path:
     return project_dir / ".improve-toolkit"
 
 
+def load_config(project_dir: Path | str | None = None) -> dict:
+    """Return the parsed .improve-toolkit/config.json, or {} when absent/invalid."""
+    config_path = get_data_home(project_dir) / "config.json"
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def prepare_data_home(project_dir: Path | str | None = None) -> Path:
     """Create the shared runtime root and its local ignore rules.
 
@@ -90,13 +109,16 @@ def prepare_data_home(project_dir: Path | str | None = None) -> Path:
     including its own .gitignore file — so .improve-toolkit/ never shows up in
     git status and memories are not synced via git. The plugin recreates the
     ignore file at every SessionStart. Projects that want memory
-    version-controlled can set IMPROVE_TRACK_MEMORIES=1 to switch to narrow
-    rules that keep MEMORY.md and USER.md trackable. The generated section is
-    rebuilt when the mode changes; existing custom rules are preserved.
+    version-controlled can set IMPROVE_TRACK_MEMORIES=1 or drop a
+    .improve-toolkit/config.json with {"track_memories": true} to switch to
+    narrow rules that keep MEMORY.md and USER.md trackable. The generated
+    section is rebuilt when the mode changes; existing custom rules are
+    preserved.
     """
+    project_dir = Path(project_dir).expanduser() if project_dir is not None else get_project_dir()
     data_home = get_data_home(project_dir)
     data_home.mkdir(parents=True, exist_ok=True)
-    active = _runtime_gitignore_lines()
+    active = _runtime_gitignore_lines(project_dir)
     ignore_path = data_home / ".gitignore"
     existing = ignore_path.read_text(encoding="utf-8") if ignore_path.exists() else ""
     existing_lines = existing.splitlines()

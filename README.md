@@ -96,7 +96,9 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 插件默认维护 `.improve-toolkit/.gitignore`，忽略整个运行时目录（含其自身的
 `.gitignore` 文件），因此 `.improve-toolkit/` 不会出现在 `git status` 中，记忆、
 日志和 workbench 都是本机数据，默认不随 git 同步；规则会在每次 SessionStart
-重建。若希望记忆纳入版本控制，可在该项目设置 `IMPROVE_TRACK_MEMORIES=1`，此时只
+重建。若希望记忆纳入版本控制，可在该项目设置 `IMPROVE_TRACK_MEMORIES=1`，或在
+`.improve-toolkit/config.json` 写入 `{"track_memories": true}`（仅对该仓库生效，默认
+`false`），此时只
 忽略日志、workbench、锁文件和原子写入临时文件，正文 `MEMORY.md`、`USER.md`、摘要
 投影 `SUMMARY.md` 和元数据 `METADATA.jsonl` 均可跟踪。`.summary-state.json` 与
 `.summary.dirty` 是本机校验状态，两种模式下都不纳入版本控制。已提交过记忆文件的
@@ -115,7 +117,9 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 - `IMPROVE_PROJECT_DIR=/path/to/project`
 - `IMPROVE_DATA_DIR=/path/to/data`
 - `IMPROVE_MEMORY_DIR=/path/to/shared/memories`
-- `IMPROVE_TRACK_MEMORIES=1`：记忆纳入版本控制（默认忽略整个 `.improve-toolkit`）
+- `IMPROVE_TRACK_MEMORIES=1`：记忆纳入版本控制（默认忽略整个 `.improve-toolkit`）；
+  也可在 `.improve-toolkit/config.json` 写 `{"track_memories": true}` 仅对该仓库生效，
+  显式设置该环境变量时优先级更高
 - `IMPROVE_MEMORY_CHAR_LIMIT`：项目记忆正文上限，默认 2200
 - `IMPROVE_USER_CHAR_LIMIT`：用户记忆正文上限，默认 1375
 - `IMPROVE_STARTUP_SUMMARY_LIMIT`：启动摘要字符上限，默认 800

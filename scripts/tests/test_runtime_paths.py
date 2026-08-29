@@ -163,6 +163,101 @@ def test_repository_runtime_gitignore_matches_generated_rules():
     )
 
 
+def test_prepare_data_home_config_track_memories_true():
+    with tempfile.TemporaryDirectory(prefix="rp_cfg_true_") as workdir:
+        data_home = Path(workdir) / ".improve-toolkit"
+        data_home.mkdir()
+        (data_home / "config.json").write_text('{"track_memories": true}', encoding="utf-8")
+        env = {"IMPROVE_PROJECT_DIR": workdir}
+        with patch.dict(os.environ, env, clear=True):
+            assert prepare_data_home() == data_home
+            lines = (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+        assert "*" not in lines
+        assert "/workbench/" in lines
+        for line in RUNTIME_GITIGNORE_TRACKED:
+            assert line in lines
+
+
+def test_prepare_data_home_config_default_false():
+    with tempfile.TemporaryDirectory(prefix="rp_cfg_false_") as workdir:
+        data_home = Path(workdir) / ".improve-toolkit"
+        data_home.mkdir()
+        env = {"IMPROVE_PROJECT_DIR": workdir}
+        with patch.dict(os.environ, env, clear=True):
+            # no config
+            prepare_data_home()
+            assert "*" in (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+            # explicit false
+            (data_home / "config.json").write_text('{"track_memories": false}', encoding="utf-8")
+            prepare_data_home()
+            assert "*" in (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+            # missing key
+            (data_home / "config.json").write_text('{"other": true}', encoding="utf-8")
+            prepare_data_home()
+            assert "*" in (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_prepare_data_home_config_malformed_ignored():
+    with tempfile.TemporaryDirectory(prefix="rp_cfg_bad_") as workdir:
+        data_home = Path(workdir) / ".improve-toolkit"
+        data_home.mkdir()
+        (data_home / "config.json").write_text("{not valid json", encoding="utf-8")
+        env = {"IMPROVE_PROJECT_DIR": workdir}
+        with patch.dict(os.environ, env, clear=True):
+            prepare_data_home()
+            assert "*" in (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_prepare_data_home_env_overrides_config():
+    with tempfile.TemporaryDirectory(prefix="rp_cfg_env_") as workdir:
+        data_home = Path(workdir) / ".improve-toolkit"
+        data_home.mkdir()
+        (data_home / "config.json").write_text('{"track_memories": true}', encoding="utf-8")
+
+        # falsy env forces local even when config is true
+        with patch.dict(
+            os.environ,
+            {"IMPROVE_PROJECT_DIR": workdir, "IMPROVE_TRACK_MEMORIES": "0"},
+            clear=True,
+        ):
+            prepare_data_home()
+            assert "*" in (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+        # truthy env forces tracked even when config is false
+        (data_home / "config.json").write_text('{"track_memories": false}', encoding="utf-8")
+        with patch.dict(
+            os.environ,
+            {"IMPROVE_PROJECT_DIR": workdir, "IMPROVE_TRACK_MEMORIES": "1"},
+            clear=True,
+        ):
+            prepare_data_home()
+            assert "*" not in (data_home / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_prepare_data_home_config_switch_back():
+    with tempfile.TemporaryDirectory(prefix="rp_cfg_switch_") as workdir:
+        data_home = Path(workdir) / ".improve-toolkit"
+        ignore_path = data_home / ".gitignore"
+        config_path = data_home / "config.json"
+        env = {"IMPROVE_PROJECT_DIR": workdir}
+        with patch.dict(os.environ, env, clear=True):
+            prepare_data_home()
+            assert "*" in ignore_path.read_text(encoding="utf-8").splitlines()
+
+            config_path.write_text('{"track_memories": true}', encoding="utf-8")
+            prepare_data_home()
+            assert "*" not in ignore_path.read_text(encoding="utf-8").splitlines()
+
+            config_path.write_text('{"track_memories": false}', encoding="utf-8")
+            prepare_data_home()
+            lines = ignore_path.read_text(encoding="utf-8").splitlines()
+            assert "*" in lines
+            assert "!.gitignore" not in lines
+
+
 ALL_TESTS = [
     test_claude_defaults,
     test_codex_defaults,
@@ -173,6 +268,11 @@ ALL_TESTS = [
     test_prepare_data_home_track_memories_override,
     test_prepare_data_home_switches_between_modes,
     test_repository_runtime_gitignore_matches_generated_rules,
+    test_prepare_data_home_config_track_memories_true,
+    test_prepare_data_home_config_default_false,
+    test_prepare_data_home_config_malformed_ignored,
+    test_prepare_data_home_env_overrides_config,
+    test_prepare_data_home_config_switch_back,
 ]
 
 
