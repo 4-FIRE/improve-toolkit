@@ -45,61 +45,54 @@ def run_hook(workdir: Path, host: str = "claude") -> dict:
     return json.loads(result.stdout)
 
 
-def test_workbench_dir_created_and_path_in_context():
+def test_runtime_data_home_created_without_workbench():
     workdir = Path(tempfile.mkdtemp(prefix="sc_test_"))
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        expected = str((workdir / ".improve-toolkit" / "workbench").resolve())
-        assert expected in context, f"workbench path missing from context; expected {expected!r}"
-        assert (workdir / ".improve-toolkit" / "workbench").is_dir(), "workbench dir was not created"
+        data_home = workdir / ".improve-toolkit"
+        assert data_home.is_dir()
+        assert (data_home / ".gitignore").is_file()
+        assert not (data_home / "workbench").exists()
+        assert "workbench" not in context.lower()
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_no_legacy_tmp_references():
+def test_code_execution_guidance_removed():
     workdir = Path(tempfile.mkdtemp(prefix="sc_test_"))
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        # The resolved workbench itself normally lives under the OS temp
-        # directory in this test. Remove that valid dynamic path before
-        # checking for old hard-coded /tmp guidance.
-        workbench = str((workdir / ".improve-toolkit" / "workbench").resolve())
-        context = context.replace(workbench, "<WORKBENCH>")
-        # The three former /tmp references must be gone.
-        for legacy in ("/tmp/<task>.py", "JSON files in /tmp", "python /tmp/"):
-            assert legacy not in context, f"legacy /tmp reference still present: {legacy!r}"
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
-def test_workbench_path_appears_in_run_guidance():
-    workdir = Path(tempfile.mkdtemp(prefix="sc_test_"))
-    try:
-        data = run_hook(workdir)
-        context = data["hookSpecificOutput"]["additionalContext"]
-        expected = str((workdir / ".improve-toolkit" / "workbench").resolve())
-        # The "How to run" guidance should reference the workbench path for
-        # both writing the file and executing it.
-        assert context.count(expected) >= 2, (
-            "workbench path should appear at least twice (write + run); "
-            f"got {context.count(expected)} occurrence(s)"
+        removed_phrases = (
+            "Coding Agent Persona",
+            "Solving with code",
+            "Use code instead of mental math",
+            "prefer running code",
+            "How to run",
+            "Process isolation",
+            "Working loop",
+            "Error handling",
+            "Output control",
+            "python -c",
+            "workbench",
         )
+        for phrase in removed_phrases:
+            assert phrase.lower() not in context.lower(), f"removed guidance still present: {phrase!r}"
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_codex_workbench_dir_created():
+def test_codex_runtime_data_home_created():
     workdir = Path(tempfile.mkdtemp(prefix="sc_codex_test_"))
     try:
         data = run_hook(workdir, host="codex")
         context = data["hookSpecificOutput"]["additionalContext"]
-        expected_dir = workdir / ".improve-toolkit" / "workbench"
-        assert str(expected_dir.resolve()) in context
-        assert expected_dir.is_dir()
+        data_home = workdir / ".improve-toolkit"
+        assert data_home.is_dir()
+        assert not (data_home / "workbench").exists()
         assert "Claude Code Persona" not in context
-        ignore_file = workdir / ".improve-toolkit" / ".gitignore"
+        ignore_file = data_home / ".gitignore"
         assert ignore_file.is_file()
         ignore_text = ignore_file.read_text(encoding="utf-8")
         assert "*" in ignore_text
@@ -153,10 +146,9 @@ def test_import_has_no_runtime_side_effects():
 
 
 ALL_TESTS = [
-    test_workbench_dir_created_and_path_in_context,
-    test_no_legacy_tmp_references,
-    test_workbench_path_appears_in_run_guidance,
-    test_codex_workbench_dir_created,
+    test_runtime_data_home_created_without_workbench,
+    test_code_execution_guidance_removed,
+    test_codex_runtime_data_home_created,
     test_memory_policy_uses_one_week_gate_and_schema_source,
     test_skill_work_uses_authorized_state,
     test_import_has_no_runtime_side_effects,

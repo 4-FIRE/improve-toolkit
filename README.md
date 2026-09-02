@@ -70,7 +70,7 @@ claude --plugin-dir /absolute/path/to/improve-toolkit
 ```text
 hooks/hooks.json
   └─ scripts/run_hook
-       ├─ session_context.py  → 通用工作方式与 workbench 路径
+       ├─ session_context.py  → 通用工作方式
        └─ load_memory.py      → SUMMARY.md 有界摘要（不读取全量正文）
 
 .mcp.json / .claude-plugin/plugin.json
