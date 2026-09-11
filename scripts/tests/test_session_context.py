@@ -101,27 +101,27 @@ def test_codex_runtime_data_home_created():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_memory_policy_uses_one_week_gate_and_schema_source():
+def test_context_exposes_memory_tools_without_global_persona():
     workdir = Path(tempfile.mkdtemp(prefix="sc_memory_test_"))
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        assert "1 week from now" in context
-        assert "3 weeks" not in context
-        assert "`memory` tool schema is the source of truth" in context
+        assert "Improve Toolkit" in context
+        assert "`memory_recall`" in context
+        assert "`memory`" in context
+        assert "<EXTREMELY_IMPORTANT>" not in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_skill_work_uses_authorized_state():
+def test_hosts_receive_identical_plugin_guidance():
     workdir = Path(tempfile.mkdtemp(prefix="sc_skills_test_"))
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        assert "load `improve`" in context
-        assert "source of truth for candidate and authorization states" in context
-        assert "reaches the authorized state" in context
-        assert "writing-for-agents" in context
+        codex = run_hook(workdir, host="codex")
+        assert context == codex["hookSpecificOutput"]["additionalContext"]
+        assert "`improve`" in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -149,8 +149,8 @@ ALL_TESTS = [
     test_runtime_data_home_created_without_workbench,
     test_code_execution_guidance_removed,
     test_codex_runtime_data_home_created,
-    test_memory_policy_uses_one_week_gate_and_schema_source,
-    test_skill_work_uses_authorized_state,
+    test_context_exposes_memory_tools_without_global_persona,
+    test_hosts_receive_identical_plugin_guidance,
     test_import_has_no_runtime_side_effects,
 ]
 

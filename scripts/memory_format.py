@@ -6,8 +6,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 ENTRY_DELIMITER = "\n§\n"
-MEMORY_CHAR_LIMIT = 2200
-USER_CHAR_LIMIT = 1375
+MEMORY_CHAR_LIMIT = 24000
+USER_CHAR_LIMIT = 8000
 
 
 def split_entries(raw: str) -> list[str]:

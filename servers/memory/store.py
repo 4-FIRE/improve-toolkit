@@ -8,10 +8,10 @@ Bounded, file-backed memory that persists across sessions. Two stores:
   - USER.md: what the agent knows about the user (preferences, communication style,
     expectations, workflow habits)
 
-Both are injected into the system prompt as a frozen snapshot at session start.
-Mid-session writes update files on disk immediately (durable) but do NOT change
-the system prompt -- this preserves the prefix cache for the entire session.
-The snapshot refreshes on the next session start.
+Production SessionStart loads only the catalog's bounded SUMMARY.md projection.
+The legacy snapshot helpers below remain for compatibility; the hook does not
+inject the complete stores. Mid-session writes persist immediately and are
+available through on-demand recall.
 
 Entry delimiter: § (section sign). Entries can be multiline.
 Character limits (not tokens) because char counts are model-independent.

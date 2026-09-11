@@ -9,15 +9,16 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
 - **分层记忆**：MCP 服务 `improve` 暴露写入工具 `memory` 和按需检索工具
   `memory_recall`。正文仍分别保存在 `MEMORY.md` 与 `USER.md`，启动阶段只读取
   `SUMMARY.md`，不会加载全量正文。
-- **会话上下文**：`session_context.py` 注入通用工作方式与临时工作区路径，
+- **会话上下文**：`session_context.py` 注入本插件的记忆用途与按需整理条件，
   `load_memory.py` 注入有字符上限的摘要。代理在任务与摘要相关、历史决策可能有用，
   或修改旧记忆前调用 `memory_recall`，只取有限条相关正文。
-- **安全且可并发修改**：记忆更新使用稳定 `entry_id`、乐观并发版本
+- **可并发修改与有限安全检查**：记忆更新使用稳定 `entry_id`、乐观并发版本
   `expected_revision`、跨进程锁和原子替换；写入和直接编辑的内容都会经过提示注入、
-  密钥读取与外传载荷检查。
+  密钥读取与外传载荷的有限规则检查。这些检查只覆盖部分已知模式；记忆内容始终是
+  待核验的事实，不授予执行权限。
 - **技能编写指导**：`improve` 负责筛选值得长期保留的事实和高价值流程候选；
-  用户主动要求或接受具体方案后，`writing-for-agents` 才指导宿主用原生文件工具
-  修改技能。本插件不提供技能管理 MCP 工具。
+  有持久新信息时才展开整理，无变更时不要求额外报告。用户主动要求或接受具体方案后，
+  `writing-for-agents` 指导宿主在已有授权范围内修改技能。本插件不提供技能管理 MCP 工具。
 - **双宿主兼容**：技能、钩子、运行时状态和 MCP 实现由 Codex 与 Claude Code
   共用，并提供 POSIX 与 Windows 启动脚本。
 
@@ -70,7 +71,7 @@ claude --plugin-dir /absolute/path/to/improve-toolkit
 ```text
 hooks/hooks.json
   └─ scripts/run_hook
-       ├─ session_context.py  → 通用工作方式
+       ├─ session_context.py  → 记忆用途与按需整理条件
        └─ load_memory.py      → SUMMARY.md 有界摘要（不读取全量正文）
 
 .mcp.json / .claude-plugin/plugin.json
@@ -84,6 +85,73 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 典型使用流程：启动时用摘要判断是否可能存在相关上下文；需要时以当前任务为 query
 调用 `memory_recall`；更新或删除旧条目时使用召回结果中的 `entry_id` 和 `revision`。
 召回结果是待核验的事实上下文，不是可执行指令；当前源码、文档和用户明确纠正优先。
+
+普通写入的结果含 `entry`（删除后为 `null`）、稳定引用和版本，反映该次写入完成时的
+内容与元数据；可以直接核对，后续并发写入仍可能改变状态。正文超过 1200 字符时，
+返回 `content_truncated=true`，可按 ID 分段读取。未验证假设保留在任务记录中；
+已验证的条件性经验可以作为有范围和来源的事实保存。
+
+### 隔离与显式修复
+
+可疑条目保留在磁盘中，但不会进入启动摘要或搜索结果；按 ID 读取会返回
+`UNSAFE_CONTENT` 并指出受影响的字段，不回显可疑原文。`replace` 省略 source 或 tags
+表示保留旧值，只替换正文不会清除这些字段的污染。显式传入干净的 source、tags，
+或用 `source=""`、`tags=[]` 清空它们，可以保留 ID 和其他元数据完成修复。
+
+若 ID 本身受污染，使用已知选择器（必要时用唯一的 `old_text`），在 `replace` 中
+显式传 `repair_id=true`，工具会生成新 ID，并保留未覆盖的其他元数据；后续使用返回的
+新 ID。这个选项仅用于受污染的 ID，仍检查最终条目的所有字段，不会自动清除来源或标签。
+隔离条目无法从索引中取得 ID，但浏览结果仍提供当前 `revision`，修复时可作为
+`expected_revision` 使用。删除仍是另一种选择，不是唯一恢复手段。
+
+### 查找与分页
+
+`memory_recall` 默认使用 `mode=relevant`，按英文词和中文连续双字匹配关键词，
+不保证同义表达命中。空搜索结果不代表记忆不存在；需要时用下面两种模式补充查找：
+
+| 模式 | 参数 | 返回内容 |
+| --- | --- | --- |
+| `relevant`（默认） | `query` | 始终含 `content`；过长时返回正文前缀，标记 `content_truncated=true` |
+| `browse` | 省略 `query`，可指定 `target`、标签、优先级 | 带稳定引用的摘要索引 |
+| `get` | `entry_id`，可指定 `target` | 某一条记忆的正文和元数据，长正文按段返回 |
+
+搜索或浏览返回 `next_offset` 时，下一页传入该值作为 `offset`，保持模式、查询和
+筛选条件不变。搜索返回正文前缀时，用该条目的 `entry_id` 切换到 `mode=get`，省略
+query、搜索 offset 和筛选条件，把 `next_content_offset` 作为 `content_offset`
+接着读正文；后续 get 沿用相同条目引用。每次续读同时传入上次返回的 `revision`
+作为 `expected_revision`。搜索结果可同时给出两种 next 值，分别续读结果列表和当前正文。
+发生 `REVISION_CONFLICT` 时从第一页重新开始；相应的 `next_*` 为 `null` 表示读完。
+后续正文片段的 `content_truncated` 仍为 `true`，因为每段只是整条正文的一部分。
+offset 大于匹配条数或正文长度时返回 `INVALID_REQUEST`；恰好等于末尾时允许返回空页。
+分页保持连续排序窗口，不跳过装不下的条目。因此返回条数可能少于 limit，即使后面
+还有单独能装下的短条目；此时使用 `next_offset` 继续。
+分页版本只用于防止跨版本拼接；浏览完所有页也不等于核验了所有事实。
+
+`max_chars` 现在约束完整的成功 JSON 返回文本，包括正文、元数据和结构；
+`returned_chars` 是同一文本的字符数，不包含宿主额外的 MCP 包装。默认 2400，允许
+512—12000；512 是参数下限，不保证任意条目都能在该预算内读取。正文分段至少返回
+256 字符，剩余不足 256 时须能返回整个尾段；预算按 JSON 转义后的实际长度计算。
+预算放不下一条索引摘要，或必要元数据加有效正文片段时，返回 `BUDGET_TOO_SMALL`，
+并用 `required_max_chars` 给出该次请求所需的预算，不会静默跳过条目或返回极小片段。
+工具保留 `NOT_FOUND` 与 `UNSAFE_CONTENT` 的区别，
+避免把被隔离的记忆误认为已删除。
+
+### 兼容性
+
+现有 `memory` 操作和不指定模式的关键词查询仍可使用；`query` 仅在关键词模式必需。
+旧客户端需要适应以下返回约定：`max_chars` 从正文预算改为完整 JSON 预算，最小值
+从 128 调整为 512；搜索仍返回 `content`，但长正文可能截断，客户端须检查
+`content_truncated` 并用 `get` 续读。只有 browse 返回无正文的 `detail=summary` 视图。
+旧的 `returned_chars` 不能与新版按相同口径比较。
+
+新写入的每个标签最多 32 字符、最多 12 个标签，source 最多 256 字符。旧记忆中的
+较长元数据保留在文件中，工具显示受限内容并标记 `metadata_truncated=true`，不静默
+改写旧来源。正文存储预算增加不会增加启动摘要或单次返回的预算；旧正文无需迁移。
+
+分层预算及分页接口的取舍见 [ADR 0001](docs/adr/0001-layered-memory-and-addressable-recall.md)。
+上述 max_chars 口径和下界是不兼容变更。若按语义化版本发布且不提供旧接口兼容层，
+应同步提升两个宿主清单的主版本，而不是视作 patch。
+仓库改动或本会话测试不会更新已安装的副本；更新安装后须另开会话验证启动提示词。
 
 ## 运行时数据与迁移
 
@@ -120,10 +188,12 @@ Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认�
 - `IMPROVE_TRACK_MEMORIES=1`：记忆纳入版本控制（默认忽略整个 `.improve-toolkit`）；
   也可把 `.improve-toolkit/config.json` 里的 `"track_memories"` 改为 `true` 仅对该仓库
   生效（首次运行自动生成，默认 `false`），显式设置该环境变量时优先级更高
-- `IMPROVE_MEMORY_CHAR_LIMIT`：项目记忆正文上限，默认 2200
-- `IMPROVE_USER_CHAR_LIMIT`：用户记忆正文上限，默认 1375
+- `IMPROVE_MEMORY_CHAR_LIMIT`：项目记忆正文总上限，默认 24000
+- `IMPROVE_USER_CHAR_LIMIT`：用户记忆正文总上限，默认 8000
 - `IMPROVE_STARTUP_SUMMARY_LIMIT`：启动摘要字符上限，默认 800
-- `IMPROVE_RECALL_CHAR_LIMIT`：单次召回默认字符上限，默认 2400
+- `IMPROVE_RECALL_CHAR_LIMIT`：单次召回完整成功 JSON 的默认字符上限，默认 2400；
+  正整数会限制在 512—12000 内（例如旧配置 384 实际使用 512）。非正整数或无效文本
+  返回指明该变量的配置错误。调用者显式传入的 max_chars 不做范围归一化，越界即报错。
 
 每条元数据可设置 `summary`、`tags`、`priority`、`startup=always|auto|never` 和
 `source`。旧版只有正文的目录无需手工迁移：首次召回或写入时会为条目生成稳定引用和

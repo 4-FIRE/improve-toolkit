@@ -71,6 +71,7 @@ from memory import (
 )
 from runtime_paths import get_host, get_project_dir, prepare_data_home
 from memory_migration import prepare_memories_dir
+from memory_catalog import MemoryCatalogError
 from transport import stdio_server
 
 app = Server("improve")
@@ -128,13 +129,21 @@ async def list_tools():
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict):
-    if name == "memory":
+    if name in ("memory", "memory_recall"):
         try:
             project_dir = resolve_project_dir(arguments)
+            store = get_memory_store(project_dir)
+        except MemoryCatalogError as exc:
+            error = json.dumps({
+                "success": False, "error": str(exc), "code": exc.code,
+                "retryable": exc.retryable, "committed": exc.committed,
+            }, ensure_ascii=False)
+            return [TextContent(type="text", text=error)]
         except ValueError as exc:
             error = json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
             return [TextContent(type="text", text=error)]
 
+    if name == "memory":
         result = mutate_memory(
             action=arguments.get("action", ""),
             target=arguments.get("target", "memory"),
@@ -147,17 +156,12 @@ async def call_tool(name: str, arguments: dict):
             priority=arguments.get("priority"),
             startup=arguments.get("startup"),
             source=arguments.get("source"),
-            store=get_memory_store(project_dir),
+            repair_id=arguments.get("repair_id", False),
+            store=store,
         )
         return [TextContent(type="text", text=result)]
 
     if name == "memory_recall":
-        try:
-            project_dir = resolve_project_dir(arguments)
-        except ValueError as exc:
-            error = json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
-            return [TextContent(type="text", text=error)]
-
         result = recall_memory(
             query=arguments.get("query", ""),
             target=arguments.get("target", "all"),
@@ -165,7 +169,12 @@ async def call_tool(name: str, arguments: dict):
             max_chars=arguments.get("max_chars"),
             tags_any=arguments.get("tags_any"),
             min_priority=arguments.get("min_priority"),
-            store=get_memory_store(project_dir),
+            mode=arguments.get("mode", "relevant"),
+            entry_id=arguments.get("entry_id"),
+            offset=arguments.get("offset", 0),
+            content_offset=arguments.get("content_offset", 0),
+            expected_revision=arguments.get("expected_revision"),
+            store=store,
         )
         return [TextContent(type="text", text=result)]
 

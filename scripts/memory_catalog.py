@@ -24,11 +24,18 @@ from memory_format import (
 Target = Literal["memory", "user"]
 SummaryStatus = Literal["current", "unavailable"]
 StartupPolicy = Literal["always", "auto", "never"]
-RecallMode = Literal["relevant", "exact", "browse"]
+RecallMode = Literal["relevant", "exact", "browse", "get"]
 
 DEFAULT_SUMMARY_CHAR_LIMIT = 800
 DEFAULT_RECALL_CHAR_LIMIT = 2400
 DEFAULT_RECALL_LIMIT = 5
+MIN_RECALL_CHAR_LIMIT = 512
+MAX_RECALL_CHAR_LIMIT = 12000
+MIN_CONTENT_CHUNK_CHARS = 256
+ENTRY_SUMMARY_CHAR_LIMIT = 160
+RECEIPT_CONTENT_CHAR_LIMIT = 1200
+TAG_CHAR_LIMIT = 32
+SOURCE_CHAR_LIMIT = 256
 LOCK_TIMEOUT_SECONDS = 15.0
 LOCK_POLL_INTERVAL = 0.1
 
@@ -52,8 +59,15 @@ _MEMORY_THREAT_PATTERNS = (
         "exfil_wget",
     ),
     (r"cat\s+[^\n]*(\.env|credentials|\.netrc|\.pgpass|\.npmrc|\.pypirc)", "read_secrets"),
-    (r"authorized_keys", "ssh_backdoor"),
-    (r"\$HOME/\.ssh|~/\.ssh", "ssh_access"),
+    (
+        r"(?:>{1,2}\s*|\btee\s+(?:-a\s+)?)[^\n;|]*authorized_keys",
+        "ssh_backdoor",
+    ),
+    (
+        r"\bcat\s+[^\n;|]*(?:\$HOME/\.ssh|~/\.ssh)/"
+        r"id_(?:rsa|dsa|ecdsa|ed25519)\b(?!\.pub)",
+        "ssh_access",
+    ),
 )
 _INVISIBLE_CHARS = frozenset(
     "\u200b\u200c\u200d\u2060\ufeff\u202a\u202b\u202c\u202d\u202e"
@@ -70,11 +84,13 @@ class MemoryCatalogError(RuntimeError):
         *,
         retryable: bool = False,
         committed: bool = False,
+        required_max_chars: int | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
         self.committed = committed
+        self.required_max_chars = required_max_chars
 
 
 @dataclass(frozen=True)
@@ -89,6 +105,7 @@ class MemoryChange:
     priority: int | None = None
     startup: StartupPolicy | None = None
     source: str | None = None
+    repair_id: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,6 +125,8 @@ class ApplyResult:
     usage_chars: int
     limit_chars: int
     message: str
+    entry: MemoryEntry | None = None
+    entry_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -125,11 +144,88 @@ class MemoryEntry:
 @dataclass(frozen=True)
 class RecallResult:
     success: bool
-    entries: tuple[MemoryEntry, ...]
+    entries: tuple[dict[str, object], ...]
     revision: str
-    returned_chars: int
     truncated: bool
     quarantined_count: int = 0
+    next_offset: int | None = None
+    next_content_offset: int | None = None
+
+    @property
+    def returned_chars(self) -> int:
+        """Count the complete serialized response, including metadata and framing."""
+        return len(self.to_json())
+
+    def to_json(self) -> str:
+        """Serialize once with a self-consistent character count."""
+        payload = {
+            "success": self.success,
+            "entries": list(self.entries),
+            "revision": self.revision,
+            "returned_chars": 0,
+            "truncated": self.truncated,
+            "quarantined_count": self.quarantined_count,
+            "next_offset": self.next_offset,
+            "next_content_offset": self.next_content_offset,
+        }
+        while True:
+            serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            if payload["returned_chars"] == len(serialized):
+                return serialized
+            payload["returned_chars"] = len(serialized)
+
+
+def memory_entry_payload(
+    entry: MemoryEntry, *, summary_only: bool = False, content_limit: int | None = None,
+) -> dict[str, object]:
+    """Render a bounded view without rewriting legacy metadata on disk."""
+    payload: dict[str, object] = {
+        "entry_id": entry.entry_id,
+        "target": entry.target,
+        "summary": entry.summary[:ENTRY_SUMMARY_CHAR_LIMIT],
+        "content_chars": len(entry.content),
+    }
+    if summary_only:
+        payload["detail"] = "summary"
+        return payload
+    payload.update({
+        "content": entry.content if content_limit is None else entry.content[:content_limit],
+        "tags": [tag[:TAG_CHAR_LIMIT] for tag in entry.tags],
+        "priority": entry.priority,
+        "startup": entry.startup,
+        "source": entry.source[:SOURCE_CHAR_LIMIT] if entry.source else None,
+    })
+    if content_limit is not None and len(entry.content) > content_limit:
+        payload["content_truncated"] = True
+    if (
+        len(entry.summary) > ENTRY_SUMMARY_CHAR_LIMIT
+        or any(len(tag) > TAG_CHAR_LIMIT for tag in entry.tags)
+        or (entry.source and len(entry.source) > SOURCE_CHAR_LIMIT)
+    ):
+        payload["metadata_truncated"] = True
+    return payload
+
+
+def _entry_threat(entry: MemoryEntry) -> str | None:
+    """Apply the same limited heuristic to every model-visible text field."""
+    fields = (
+        ("entry_id", entry.entry_id), ("content", entry.content), ("summary", entry.summary),
+        ("source", entry.source or ""), *(("tags", tag) for tag in entry.tags),
+    )
+    for field, text in fields:
+        threat = scan_memory_content(text)
+        if threat:
+            return f"{field} ({threat})"
+    return None
+
+
+def _quarantine_message(threat: str) -> str:
+    """Name the field and repair path without echoing the quarantined text."""
+    return (
+        f"The entry is quarantined: suspicious {threat}. "
+        "Explicitly replace affected fields; source=\"\" or tags=[] clears them. "
+        "For a suspicious entry_id, replace with repair_id=true to generate a new ID."
+    )
 
 
 def _sha256_text(content: str) -> str:
@@ -158,8 +254,16 @@ def _env_positive_int(name: str, default: int) -> int:
     return value
 
 
+def _env_recall_char_limit() -> int:
+    try:
+        configured = _env_positive_int("IMPROVE_RECALL_CHAR_LIMIT", DEFAULT_RECALL_CHAR_LIMIT)
+    except ValueError as exc:
+        raise MemoryCatalogError("INVALID_CONFIGURATION", str(exc)) from exc
+    return min(MAX_RECALL_CHAR_LIMIT, max(MIN_RECALL_CHAR_LIMIT, configured))
+
+
 def scan_memory_content(content: str) -> str | None:
-    """Return a stable threat code when memory content is unsafe to expose."""
+    """Flag known suspicious text patterns; this is not a semantic safety check."""
     for character in _INVISIBLE_CHARS:
         if character in content:
             return f"invisible_unicode_U+{ord(character):04X}"
@@ -205,10 +309,7 @@ class MemoryCatalog:
         self.recall_char_limit = (
             recall_char_limit
             if recall_char_limit is not None
-            else _env_positive_int(
-                "IMPROVE_RECALL_CHAR_LIMIT",
-                DEFAULT_RECALL_CHAR_LIMIT,
-            )
+            else _env_recall_char_limit()
         )
 
     def startup_snapshot(self) -> SummarySnapshot:
@@ -241,59 +342,93 @@ class MemoryCatalog:
     def recall(
         self,
         *,
-        query: str,
+        query: str = "",
         target: Literal["all", "memory", "user"] = "all",
         mode: RecallMode = "relevant",
         limit: int = DEFAULT_RECALL_LIMIT,
         max_chars: int | None = None,
         tags_any: tuple[str, ...] = (),
         min_priority: int | None = None,
+        entry_id: str | None = None,
+        offset: int = 0,
+        content_offset: int = 0,
+        expected_revision: str | None = None,
     ) -> RecallResult:
-        """Return a bounded, deterministically ranked view of live memory."""
+        """Search, browse a complete index, or read one entry in bounded pages."""
         if target not in ("all", "memory", "user"):
             raise MemoryCatalogError("INVALID_REQUEST", f"Invalid target: {target}")
-        if mode not in ("relevant", "exact", "browse"):
+        if mode not in ("relevant", "exact", "browse", "get"):
             raise MemoryCatalogError("INVALID_REQUEST", f"Invalid recall mode: {mode}")
-        if mode != "browse" and not query.strip():
-            raise MemoryCatalogError("INVALID_REQUEST", "query is required for this recall mode.")
-        if limit < 1 or limit > 20:
+        if not isinstance(query, str) or (mode in ("relevant", "exact") and not query.strip()):
+            raise MemoryCatalogError("INVALID_REQUEST", "query is required for keyword search.")
+        if type(limit) is not int or not 1 <= limit <= 20:
             raise MemoryCatalogError("INVALID_REQUEST", "limit must be between 1 and 20.")
         active_char_limit = self.recall_char_limit if max_chars is None else max_chars
-        if active_char_limit < 1 or active_char_limit > 12000:
+        if (
+            type(active_char_limit) is not int
+            or not MIN_RECALL_CHAR_LIMIT <= active_char_limit <= MAX_RECALL_CHAR_LIMIT
+        ):
             raise MemoryCatalogError(
                 "INVALID_REQUEST",
-                "max_chars must be between 1 and 12000.",
+                f"max_chars must be between {MIN_RECALL_CHAR_LIMIT} and {MAX_RECALL_CHAR_LIMIT}.",
+            )
+        if any(type(value) is not int or value < 0 for value in (offset, content_offset)):
+            raise MemoryCatalogError("INVALID_REQUEST", "Offsets must be non-negative integers.")
+        if min_priority is not None and (type(min_priority) is not int or not 0 <= min_priority <= 100):
+            raise MemoryCatalogError("INVALID_REQUEST", "min_priority must be between 0 and 100.")
+        if mode == "get":
+            if not isinstance(entry_id, str) or not entry_id:
+                raise MemoryCatalogError("INVALID_REQUEST", "entry_id is required for mode=get.")
+            if query or tags_any or min_priority is not None or offset:
+                raise MemoryCatalogError("INVALID_REQUEST", "mode=get does not accept query, filters or offset.")
+        elif entry_id is not None or content_offset:
+            raise MemoryCatalogError("INVALID_REQUEST", "entry_id and content_offset require mode=get.")
+        if mode == "browse" and query:
+            raise MemoryCatalogError("INVALID_REQUEST", "mode=browse lists summaries; omit query.")
+        if (offset or content_offset) and not expected_revision:
+            raise MemoryCatalogError(
+                "INVALID_REQUEST", "Continuation requires expected_revision from the previous page.",
             )
 
         targets: tuple[Target, ...] = (
             ("user", "memory") if target == "all" else (target,)
         )
-        lock_path = self.memory_dir / ".memory.lock"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.memory_dir / ".memory.lock"
         with file_lock(
-            lock_path,
-            timeout=LOCK_TIMEOUT_SECONDS,
-            poll_interval=LOCK_POLL_INTERVAL,
+            lock_path, timeout=LOCK_TIMEOUT_SECONDS, poll_interval=LOCK_POLL_INTERVAL,
             description=f"memory catalog lock {lock_path}",
         ):
             records = self._reconcile_entries()
-            self._write_metadata(records)
             revision = self._revision_for(records)
+            if expected_revision is not None and expected_revision != revision:
+                raise MemoryCatalogError(
+                    "REVISION_CONFLICT", "Memory changed; restart the lookup from its first page.",
+                    retryable=True,
+                )
+            self._write_metadata(records)
             self._write_summary(revision, records)
+
+        scoped = [entry for entry in records if entry.target in targets]
+        quarantined_count = sum(bool(_entry_threat(entry)) for entry in scoped)
+        if mode == "get":
+            entry = next((entry for entry in scoped if entry.entry_id == entry_id), None)
+            if entry is None:
+                raise MemoryCatalogError("NOT_FOUND", "No entry matched entry_id in this target.")
+            threat = _entry_threat(entry)
+            if threat:
+                raise MemoryCatalogError("UNSAFE_CONTENT", _quarantine_message(threat))
+            return self._entry_page(
+                entry, revision, content_offset, active_char_limit, quarantined_count,
+            )
 
         query_terms = self._search_terms(query)
         requested_tags = {tag.casefold() for tag in tags_any}
         ranked: list[tuple[int, int, int, MemoryEntry]] = []
-        quarantined_count = 0
-        for order, entry in enumerate(records):
-            if entry.target not in targets:
+        for order, entry in enumerate(scoped):
+            if _entry_threat(entry):
                 continue
-            if scan_memory_content(entry.content) or scan_memory_content(entry.summary):
-                quarantined_count += 1
-                continue
-            if requested_tags and not requested_tags.intersection(
-                tag.casefold() for tag in entry.tags
-            ):
+            if requested_tags and not requested_tags.intersection(tag.casefold() for tag in entry.tags):
                 continue
             if min_priority is not None and entry.priority < min_priority:
                 continue
@@ -301,28 +436,92 @@ class MemoryCatalog:
             if mode != "browse" and score <= 0:
                 continue
             ranked.append((-score, -entry.priority, order, entry))
-
         ranked.sort(key=lambda item: (item[0], item[1], item[2], item[3].entry_id))
-        selected: list[MemoryEntry] = []
-        returned_chars = 0
-        for _, _, _, entry in ranked:
+        if offset > len(ranked):
+            raise MemoryCatalogError("INVALID_REQUEST", "offset exceeds the matching entry count.")
+
+        selected: list[dict[str, object]] = []
+        position = offset
+
+        def page(items: list[dict[str, object]], end: int) -> RecallResult:
+            return RecallResult(
+                success=True, entries=tuple(items), revision=revision,
+                truncated=end < len(ranked),
+                quarantined_count=quarantined_count,
+                next_offset=end if end < len(ranked) else None,
+            )
+
+        for _, _, _, entry in ranked[offset:]:
             if len(selected) >= limit:
                 break
-            separator_chars = 1 if selected else 0
-            candidate_chars = returned_chars + separator_chars + len(entry.content)
-            if candidate_chars > active_char_limit:
-                continue
-            selected.append(entry)
-            returned_chars = candidate_chars
+            view = memory_entry_payload(entry, summary_only=mode == "browse")
+            candidate = page([*selected, view], position + 1)
+            if candidate.returned_chars > active_char_limit:
+                if selected:
+                    break
+                if mode != "browse":
+                    # Search always returns content; the first long hit is a useful
+                    # prefix, with independent continuations for its body and ranking.
+                    return self._entry_page(
+                        entry, revision, 0, active_char_limit, quarantined_count,
+                        next_offset=position + 1 if position + 1 < len(ranked) else None,
+                    )
+                raise MemoryCatalogError(
+                    "BUDGET_TOO_SMALL",
+                    f"Increase max_chars to at least {candidate.returned_chars} for this summary.",
+                    required_max_chars=candidate.returned_chars,
+                )
+            selected.append(view)
+            position += 1
+        return page(selected, position)
 
-        return RecallResult(
-            success=True,
-            entries=tuple(selected),
-            revision=revision,
-            returned_chars=returned_chars,
-            truncated=len(selected) < len(ranked),
-            quarantined_count=quarantined_count,
-        )
+    @staticmethod
+    def _entry_page(
+        entry: MemoryEntry, revision: str, offset: int, max_chars: int, quarantined_count: int,
+        *, next_offset: int | None = None,
+    ) -> RecallResult:
+        """Read contiguous content chunks without dropping a long entry."""
+        if offset > len(entry.content):
+            raise MemoryCatalogError("INVALID_REQUEST", "content_offset exceeds entry length.")
+        base = memory_entry_payload(entry)
+
+        def page(end: int) -> RecallResult:
+            partial = offset > 0 or end < len(entry.content)
+            view = {
+                **base, "content": entry.content[offset:end],
+                "content_offset": offset, "content_truncated": partial,
+            }
+            return RecallResult(
+                success=True, entries=(view,), revision=revision,
+                truncated=partial or next_offset is not None, quarantined_count=quarantined_count,
+                next_offset=next_offset,
+                next_content_offset=end if end < len(entry.content) else None,
+            )
+
+        # Measure JSON escaping as well as text. Binary search finds a fitting
+        # contiguous prefix; even control characters cannot exceed the budget.
+        # The final page has different framing (null offset / false flag), so
+        # test it separately before searching the monotonic partial-page range.
+        complete = page(len(entry.content))
+        if complete.returned_chars <= max_chars:
+            return complete
+        low = min(offset + MIN_CONTENT_CHUNK_CHARS, len(entry.content))
+        high = len(entry.content) - 1
+        minimum = page(low)
+        if minimum.returned_chars > max_chars:
+            raise MemoryCatalogError(
+                "BUDGET_TOO_SMALL",
+                f"Increase max_chars to at least {minimum.returned_chars} for this entry's "
+                f"metadata and {low - offset} content characters.",
+                required_max_chars=minimum.returned_chars,
+            )
+        while low < high:
+            middle = (low + high + 1) // 2
+            if page(middle).returned_chars <= max_chars:
+                low = middle
+            else:
+                high = middle - 1
+        return page(low)
 
     def apply(
         self,
@@ -413,10 +612,25 @@ class MemoryCatalog:
                         else selected.source
                     ),
                 )
+                if change.repair_id:
+                    if not scan_memory_content(selected.entry_id):
+                        raise MemoryCatalogError(
+                            "INVALID_REQUEST", "repair_id only repairs a suspicious entry_id.",
+                        )
+                    used_ids = {entry.entry_id for entry in records}
+                    new_id = _derived_entry_id(change.target, content)
+                    attempt = 0
+                    while new_id in used_ids:
+                        attempt += 1
+                        new_id = _derived_entry_id(change.target, f"{content}\0repair:{attempt}")
+                    updated = replace(updated, entry_id=new_id)
                 records[records.index(selected)] = updated
                 selected = updated
                 changed_id = updated.entry_id
-                message = "Entry replaced."
+                message = (
+                    "Entry replaced; quarantined entry_id regenerated."
+                    if change.repair_id else "Entry replaced."
+                )
             else:
                 if selected is None:
                     raise MemoryCatalogError("NOT_FOUND", "No entry matched the selector.")
@@ -425,6 +639,10 @@ class MemoryCatalog:
                 changed_id = selected.entry_id
                 message = "Entry removed."
 
+            if change.action != "remove":
+                threat = _entry_threat(selected)
+                if threat:
+                    raise MemoryCatalogError("UNSAFE_CONTENT", _quarantine_message(threat))
             summary_text = self._build_summary(records, strict_always=True)
             dirty_path = self.memory_dir / ".summary.dirty"
             content_committed = False
@@ -461,6 +679,8 @@ class MemoryCatalog:
             usage_chars=char_count(target_entries),
             limit_chars=self._char_limit(change.target),
             message=message,
+            entry=selected if change.action != "remove" else None,
+            entry_count=len(target_entries),
         )
 
     def _validate_change(self, change: MemoryChange) -> None:
@@ -468,6 +688,8 @@ class MemoryCatalog:
             raise MemoryCatalogError("INVALID_REQUEST", f"Invalid action: {change.action}")
         if change.target not in ("memory", "user"):
             raise MemoryCatalogError("INVALID_REQUEST", f"Invalid target: {change.target}")
+        if type(change.repair_id) is not bool or (change.repair_id and change.action != "replace"):
+            raise MemoryCatalogError("INVALID_REQUEST", "repair_id must be a boolean and is only valid for replace.")
         if change.action in ("add", "replace"):
             content = (change.content or "").strip()
             if not content:
@@ -492,6 +714,21 @@ class MemoryCatalog:
             raise MemoryCatalogError("INVALID_REQUEST", f"Invalid startup policy: {change.startup}")
         if change.summary is not None:
             self._validated_summary(change.summary)
+        if change.tags is not None:
+            if len(change.tags) > 12 or any(
+                len(" ".join(str(tag).split()).casefold()) > TAG_CHAR_LIMIT for tag in change.tags
+            ):
+                raise MemoryCatalogError(
+                    "INVALID_REQUEST", f"Use at most 12 tags of at most {TAG_CHAR_LIMIT} characters each.",
+                )
+        if change.source is not None and len(change.source.strip()) > SOURCE_CHAR_LIMIT:
+            raise MemoryCatalogError(
+                "INVALID_REQUEST", f"source cannot exceed {SOURCE_CHAR_LIMIT} characters.",
+            )
+        for value in (change.source or "", *(change.tags or ())):
+            threat = scan_memory_content(str(value))
+            if threat:
+                raise MemoryCatalogError("UNSAFE_CONTENT", f"Unsafe memory metadata: {threat}")
 
     def _entry_from_change(self, change: MemoryChange, content: str) -> MemoryEntry:
         return MemoryEntry(
@@ -710,8 +947,10 @@ class MemoryCatalog:
         normalized = " ".join(summary.split())
         if not normalized:
             raise MemoryCatalogError("INVALID_REQUEST", "summary cannot be empty.")
-        if len(normalized) > 160:
-            raise MemoryCatalogError("INVALID_REQUEST", "summary cannot exceed 160 characters.")
+        if len(normalized) > ENTRY_SUMMARY_CHAR_LIMIT:
+            raise MemoryCatalogError(
+                "INVALID_REQUEST", f"summary cannot exceed {ENTRY_SUMMARY_CHAR_LIMIT} characters.",
+            )
         threat = scan_memory_content(normalized)
         if threat:
             raise MemoryCatalogError("UNSAFE_CONTENT", f"Unsafe memory summary: {threat}")
@@ -766,8 +1005,7 @@ class MemoryCatalog:
             entry
             for entry in records
             if entry.startup != "never"
-            and not scan_memory_content(entry.content)
-            and not scan_memory_content(entry.summary)
+            and not _entry_threat(entry)
         ]
         if not safe_records:
             return ""
