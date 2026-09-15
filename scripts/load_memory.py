@@ -15,8 +15,8 @@ from runtime_paths import (
 
 
 UNAVAILABLE_BRIEF = (
-    "MEMORY BRIEF unavailable. Durable memory details were not loaded. "
-    "Call memory_recall with the current task before relying on prior context."
+    "MEMORY BRIEF unavailable. If prior context matters to the task, "
+    "use memory_recall for relevant details."
 )
 
 

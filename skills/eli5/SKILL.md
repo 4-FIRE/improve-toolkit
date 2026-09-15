@@ -1,11 +1,16 @@
 ---
 name: eli5
-description: Explain a topic like I'm a 5 year old. Use when the user types /eli5 <topic> or asks for a dead-simple picture explainer of how something works.
+description: 用大图、少量文字和生活例子，为初学者解释一个主题。
 disable-model-invocation: true
 ---
 
-# eli5
+# 图解入门
 
-Explain like I'm someone who knows nothing about this topic, using a HTML artifact with big pictures and few words.
+从用户消息或宿主提供的参数确定主题，为没有背景知识的人解释它如何工作。
+只有缺少主题时才提问。
 
-Topic: $ARGUMENTS
+默认交付可直接打开的 HTML 图解：用大图、少量文字和一个贴近生活的例子说明关键
+关系。交互能帮助理解变化时再加入交互。用户指定其他形式时按其要求交付。
+
+保留会影响理解的必要条件，说明类比在哪里不再适用。用当前环境可用的方式生成、
+检查并提供产物；无法生成 HTML 时交付自包含的图文解释，并简短说明限制。

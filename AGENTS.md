@@ -30,10 +30,11 @@ servers/.venv/bin/python servers/test_mcp_protocol.py
 python /path/to/plugin-creator/scripts/validate_plugin.py .
 ```
 
-The first command runs the standard-library hook/path suite. `test_tools.py`
-creates `servers/.venv` when needed and exercises MCP memory behavior. The
-protocol test validates the launcher and an end-to-end stdio call. The final
-command validates Codex plugin metadata.
+Choose checks for the changed surface: the first command covers shared scripts
+and hooks; `test_tools.py` covers MCP memory behavior and creates `servers/.venv`
+when needed; the protocol test covers launcher, tool discovery and stdio calls;
+the final command checks Codex plugin metadata. Skill prose changes need format
+and reference checks, plus a representative trial when behavior changes matter.
 
 Run one unit file directly while iterating, for example
 `python scripts/tests/test_runtime_paths.py`.
@@ -50,9 +51,12 @@ counterparts together. Preserve each JSON file's existing formatting.
 ## Testing Guidelines
 
 Tests use plain functions named `test_*` with built-in `assert`; no pytest
-runner is required. Add unit coverage beside related script tests and MCP
-integration cases to `servers/test_tools.py`. Use temporary directories and
-patched environments so tests never mutate real project memory.
+runner is required. Add behavioral coverage beside related script tests and MCP
+integration cases to `servers/test_tools.py`; prose-only edits do not need tests
+that assert exact wording. Use temporary directories and patched environments
+so tests never mutate real project memory. Run relevant checks and fix failures
+caused by the change within the existing task authorization. Once checks pass,
+repeat or broaden them only for new changes, failures or unresolved concerns.
 
 ## Commit & Pull Request Guidelines
 

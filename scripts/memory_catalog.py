@@ -1019,7 +1019,7 @@ class MemoryCatalog:
         )
 
         header = "MEMORY BRIEF"
-        footer = "Use memory_recall with the current task for relevant details."
+        footer = "If these cues matter to the task, use memory_recall for details."
         lines = [header]
         omitted = 0
         for index, entry in enumerate(safe_records):

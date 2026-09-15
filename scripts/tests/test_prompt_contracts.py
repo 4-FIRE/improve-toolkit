@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 from pathlib import Path
@@ -17,11 +18,14 @@ MEMORY_TOOL = ROOT / "servers" / "memory" / "tools.py"
 
 
 def test_skill_resource_links_resolve() -> None:
-    for path in (IMPROVE_SKILL, SKILL_CANDIDATES):
+    for path in (ROOT / "skills").rglob("*.md"):
         links = re.findall(r"\]\(([^)]+)\)", path.read_text(encoding="utf-8"))
         for link in links:
+            if "://" in link or link.startswith("#"):
+                continue
+            if "<" in link or link.startswith("./src/"):
+                continue
             assert (path.parent / link.split("#")[0]).is_file(), (path, link)
-    assert "SKILL-CANDIDATES.md" in IMPROVE_SKILL.read_text(encoding="utf-8")
 
 
 def test_prompt_tool_references_match_exposed_schemas() -> None:
@@ -40,8 +44,12 @@ def test_prompt_tool_references_match_exposed_schemas() -> None:
 
 def test_referenced_skills_are_available() -> None:
     for path in (SESSION_CONTEXT, IMPROVE_SKILL, SKILL_CANDIDATES):
-        referenced = re.findall(r"`(improve|writing-for-agents)`", path.read_text(encoding="utf-8"))
+        referenced = re.findall(r"`(improve)`", path.read_text(encoding="utf-8"))
         for name in referenced:
+            assert (ROOT / "skills" / name / "SKILL.md").is_file(), name
+    manifest = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    for prompt in manifest["interface"]["defaultPrompt"]:
+        for name in re.findall(r"\$([a-z][a-z0-9-]*)", prompt):
             assert (ROOT / "skills" / name / "SKILL.md").is_file(), name
 
 

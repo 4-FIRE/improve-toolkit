@@ -273,29 +273,13 @@ def test_recall_returns_relevant_compact_results() -> None:
 
 
 def test_memory_schema_contract() -> None:
-    description = MEMORY_SCHEMA["description"]
-    for expected in (
-        "Use improve to judge durable new facts",
-        "SAVE PROACTIVELY WHEN",
-        "one declarative fact per entry",
-        "source-of-truth pointer",
-        "'user': user identity and preferences relevant within this project",
-        "'memory': project or environment facts useful across maintainers",
-        "`improve` skill's skill-candidate branch",
-        "recall related memory before replace or remove",
-    ):
-        assert expected in description, expected
-
-    assert "workflow specific to this user's setup" not in description
-    assert "writing-for-agents" not in description
-
-    target_description = MEMORY_SCHEMA["parameters"]["properties"]["target"][
-        "description"
-    ]
-    assert "project-scoped user facts" in target_description
-    assert "across maintainers" in target_description
-
+    # Validate the callable contract; wording is reviewed through task trials.
+    assert MEMORY_SCHEMA["parameters"]["required"] == ["action", "target"]
     properties = MEMORY_SCHEMA["parameters"]["properties"]
+    assert set(properties["action"]["enum"]) == {"add", "replace", "remove"}
+    assert set(properties["target"]["enum"]) == {"memory", "user"}
+    assert properties["repair_id"]["type"] == "boolean"
+    assert properties["repair_id"]["default"] is False
     for expected in (
         "entry_id",
         "repair_id",
