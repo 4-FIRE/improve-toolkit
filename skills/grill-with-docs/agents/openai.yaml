@@ -1,2 +1,5 @@
+interface:
+  display_name: 追问并留档
+  short_description: 反复追问把方案打磨清楚，同时写下术语表和决策记录。
 policy:
   allow_implicit_invocation: false

@@ -1,2 +1,5 @@
+interface:
+  display_name: 圆桌讨论
+  short_description: 邀请几位代表人物围绕议题连续交锋，逐轮追问并画出思考框架。
 policy:
   allow_implicit_invocation: false

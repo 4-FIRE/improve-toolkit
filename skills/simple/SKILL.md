@@ -1,5 +1,5 @@
 ---
-name: eli5
+name: simple
 description: 用大图、少量文字和生活例子，为初学者解释一个主题。
 disable-model-invocation: true
 ---

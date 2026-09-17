@@ -1,0 +1,5 @@
+interface:
+  display_name: 图解入门
+  short_description: 用大图、少量文字和生活例子，把一个主题讲给没有背景的人听。
+policy:
+  allow_implicit_invocation: false
