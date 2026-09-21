@@ -35,7 +35,7 @@
 
 用户没有指定位置时，主动提案默认使用当前项目、当前宿主的技能目录：
 
-- Codex：`<project>/.agents/skills/<skill-name>/`
+- Codex、pi：`<project>/.agents/skills/<skill-name>/`
 - Claude Code：`<project>/.claude/skills/<skill-name>/`
 
 提案不阻塞原任务。用户未接受时不安装或修改技能；只有新证据或用户重提时再考虑。

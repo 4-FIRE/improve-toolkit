@@ -57,9 +57,9 @@ def _path_from_env(name: str) -> Path | None:
 
 
 def get_host() -> str:
-    """Return ``codex`` or ``claude`` for the current plugin host."""
+    """Return ``codex``, ``claude``, or ``pi`` for the current plugin host."""
     explicit = os.environ.get("IMPROVE_HOST", "").strip().lower()
-    if explicit in {"codex", "claude"}:
+    if explicit in {"codex", "claude", "pi"}:
         return explicit
 
     # PLUGIN_ROOT is a Codex-specific extension. Codex also exports the

@@ -1,0 +1,33 @@
+{
+  "name": "improve-toolkit",
+  "version": "1.1.1",
+  "description": "Shared project memory and skills for pi, Codex, and Claude Code",
+  "type": "module",
+  "license": "MIT",
+  "repository": "https://github.com/4-FIRE/improve-toolkit",
+  "keywords": ["pi-package", "memory", "skills"],
+  "files": [
+    "extensions/", "skills/", "scripts/*.py", "scripts/tests/*.py",
+    "scripts/run_hook", "scripts/run_hook.cmd", "servers/*.py",
+    "servers/memory/*.py", "servers/launch_mcp", "servers/launch_mcp.cmd",
+    "servers/pyproject.toml", "servers/requirements.lock"
+  ],
+  "pi": {
+    "extensions": ["./extensions/improve.ts"],
+    "skills": ["./skills"]
+  },
+  "scripts": {
+    "test": "node --test extensions/tests/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": { "optional": true },
+    "typebox": { "optional": true }
+  }
+}

@@ -2,12 +2,15 @@
 
 ## Project Structure & Module Organization
 
-Improve Toolkit is one plugin shared by Codex and Claude Code. Host metadata
-lives in `.codex-plugin/`, `.claude-plugin/`, `.mcp.json`, and
-`codex-marketplace/`. Keep shared behavior host-neutral:
+Improve Toolkit is one plugin shared by Codex, Claude Code, and pi. Host metadata
+lives in `.codex-plugin/`, `.claude-plugin/`, `.mcp.json`,
+`codex-marketplace/`, and `package.json`. Keep shared behavior host-neutral:
 
 - `skills/` contains the bundled `SKILL.md` workflows.
 - `hooks/hooks.json` registers the shared `SessionStart` hooks.
+- `extensions/improve.ts` connects pi events and tools to the same Python hooks
+  and MCP service. `package.json` declares pi resources; `npm test` exercises
+  the adapter against real Python processes in temporary projects.
 - `scripts/` contains standard-library-only hook, path, migration, locking, and
   virtual-environment utilities. Unit tests live in `scripts/tests/`.
 - `servers/` contains the stdio MCP server, the `memory` tool, integration
@@ -28,6 +31,8 @@ python scripts/run_tests.py
 python servers/test_tools.py
 servers/.venv/bin/python servers/test_mcp_protocol.py
 python /path/to/plugin-creator/scripts/validate_plugin.py .
+npm ci
+npm test
 ```
 
 Choose checks for the changed surface: the first command covers shared scripts
@@ -70,5 +75,6 @@ Screenshots are only useful for visible host UI changes.
 
 Document new `IMPROVE_*` overrides and avoid committing logs, caches, virtual
 environments, or secrets. Release version bumps must stay synchronized across
-`.codex-plugin/plugin.json` and `.claude-plugin/plugin.json`. `CLAUDE.md` links here; edit this file as the
+`.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, `package.json`, and
+`package-lock.json`. `CLAUDE.md` links here; edit this file as the
 single contributor-guide source.

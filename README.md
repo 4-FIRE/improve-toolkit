@@ -1,6 +1,6 @@
 # improve-toolkit
 
-让 Codex 与 Claude Code 共享长期记忆与工作方式的双宿主插件。它通过本地
+让 Codex、Claude Code 与 pi 共享长期记忆与工作方式的插件。它通过本地
 stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘要，并用
 内置技能约束何时、如何整理可复用经验。
 
@@ -20,8 +20,8 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
   有持久新信息时才展开整理，无变更时不要求额外报告。用户主动要求或接受具体方案后，
   按其[技能编写说明](skills/improve/SKILL-CANDIDATES.md)在已有授权范围内修改技能；
   写法依据 OpenAI 的文章。本插件不提供技能管理 MCP 工具。
-- **双宿主兼容**：技能、钩子、运行时状态和 MCP 实现由 Codex 与 Claude Code
-  共用，并提供 POSIX 与 Windows 启动脚本。
+- **三个宿主共用**：技能、启动提示词、运行时状态和 MCP 实现共用。
+  Codex 与 Claude Code 使用钩子与 MCP 配置，pi 使用原生扩展连接相同服务。
 
 ## 技能与提示词
 
@@ -32,7 +32,8 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
 ## 环境要求
 
 - Python 3.10+
-- Codex CLI 或 Claude Code CLI
+- Codex CLI、Claude Code CLI 或 pi（pi 适配已在 0.86.1 验证）
+- pi 本地安装还需要 Node.js 与 npm；适配测试使用 Node.js 22.18+ 或 24+
 - 首次启动 MCP 服务时可联网安装锁定版本的 `mcp`
 
 ## 安装
@@ -73,6 +74,36 @@ claude --plugin-dir /absolute/path/to/improve-toolkit
 
 安装后使用 `/mcp` 检查服务状态。
 
+### pi
+
+安装本地仓库（pi 直接使用此目录，修改后可 `/reload`）：
+
+```bash
+cd /absolute/path/to/improve-toolkit
+npm ci
+pi install /absolute/path/to/improve-toolkit
+```
+
+进入需要使用记忆的项目目录，启动 pi；已打开的会话执行 `/reload`。
+用 `/skill:improve` 加载记忆整理技能，其他技能同样使用 `/skill:<name>`。
+扩展在会话启动时注册 `memory` 和 `memory_recall`，无需另装 MCP 插件。
+也可在发布包含此适配的提交后执行
+`pi install git:github.com/4-FIRE/improve-toolkit`，由 pi 安装 npm 依赖。
+
+默认安装到用户配置；仅在当前项目使用时，进入该项目后运行
+`pi install -l /absolute/path/to/improve-toolkit`。项目配置仍按 pi 的信任规则加载。
+卸载使用 `pi remove /absolute/path/to/improve-toolkit`，不会删除项目记忆。
+
+pi 适配不读取 Claude 的插件注册表或通用 hook 配置，仅对接本插件需要的
+启动上下文、技能与记忆工具。
+
+连接或 Python 启动失败会在 pi 中提示；修复后执行 `/reload`。首次创建 Python
+环境最多等待 120 秒。可用现有 `IMPROVE_PYTHON` 指定 Python 3.10+ 解释器。
+pi 扩展以参数数组直接启动 Python，兼容包含空格的路径；Windows 尚未实机验证。
+接入方式依据 pi 的[扩展 API](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md)
+与 [package 说明](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/packages.md)，
+并用本机 0.86.1 的 API 验证。
+
 ## 工作原理
 
 ```text
@@ -84,10 +115,20 @@ hooks/hooks.json
 .mcp.json / .claude-plugin/plugin.json
   └─ servers/launch_mcp
        └─ server.py           → memory + memory_recall
+
+package.json（pi）
+  ├─ skills/                  → 原有共享技能
+  └─ extensions/improve.ts
+       ├─ session_start / session_compact → 共享 Python 启动脚本
+       ├─ before_agent_start → 独立提示词片段中的记忆说明与有界摘要
+       └─ memory / memory_recall → 同一个 server.py（stdio MCP）
 ```
 
 Codex 调用 `memory` 时必须传入绝对 `project_dir`；Claude Code 默认从
-`CLAUDE_PROJECT_DIR` 解析项目。两个宿主最终写入同一个项目级目录。
+`CLAUDE_PROJECT_DIR` 解析项目。pi 自动传入当前会话的工作目录；工具调用可显式传入
+绝对 `project_dir`。三个宿主最终写入同一个项目级目录。pi 子进程中的
+`IMPROVE_PROJECT_DIR` 固定为会话目录，避免继承启动终端中其他宿主的项目路径；
+显式配置的 `IMPROVE_DATA_DIR` 和 `IMPROVE_MEMORY_DIR` 仍然有效。
 
 典型使用流程：启动时用摘要判断是否可能存在相关上下文；需要时以当前任务为 query
 调用 `memory_recall`；更新或删除旧条目时使用召回结果中的 `entry_id` 和 `revision`。
@@ -157,7 +198,7 @@ offset 大于匹配条数或正文长度时返回 `INVALID_REQUEST`；恰好等�
 
 分层预算及分页接口的取舍见 [ADR 0001](docs/adr/0001-layered-memory-and-addressable-recall.md)。
 上述 max_chars 口径和下界是不兼容变更。若按语义化版本发布且不提供旧接口兼容层，
-应同步提升两个宿主清单的主版本，而不是视作 patch。
+应同步提升三个宿主清单的主版本，而不是视作 patch。
 仓库改动或本会话测试不会更新已安装的副本；更新安装后须另开会话验证启动提示词。
 
 ## 运行时数据与迁移
@@ -188,7 +229,7 @@ offset 大于匹配条数或正文长度时返回 `INVALID_REQUEST`；恰好等�
 
 可用以下变量覆盖路径：
 
-- `IMPROVE_HOST=codex|claude`
+- `IMPROVE_HOST=codex|claude|pi`
 - `IMPROVE_PROJECT_DIR=/path/to/project`
 - `IMPROVE_DATA_DIR=/path/to/data`
 - `IMPROVE_MEMORY_DIR=/path/to/shared/memories`
@@ -238,7 +279,15 @@ python servers/test_tools.py
 
 # stdio MCP 初始化、工具发现、写入与召回烟雾测试
 servers/.venv/bin/python servers/test_mcp_protocol.py
+
+# pi 扩展：真实 Python 钩子、MCP 写入与召回、项目隔离及生命周期
+npm ci
+npm test
 ```
+
+`npm test` 包含真实 Python 进程的适配测试；若 npm 全局目录安装了 pi，
+还会用其 SDK 验证 package、技能发现与工具调用。未安装时该项明确标记为跳过。
+所有记忆读写测试使用临时项目，不调用模型 API。
 
 仓库结构、编码约定、提交规范和发布版本同步要求见
 [`AGENTS.md`](AGENTS.md)。Codex marketplace 位于

@@ -48,6 +48,20 @@ def test_codex_defaults():
             assert get_memories_dir() == project / ".improve-toolkit" / "memories"
 
 
+def test_pi_overrides_inherited_host_environment():
+    with tempfile.TemporaryDirectory(prefix="rp_pi_") as workdir:
+        env = {
+            "IMPROVE_HOST": "pi",
+            "IMPROVE_PROJECT_DIR": workdir,
+            "CLAUDE_PROJECT_DIR": "/other-project",
+            "PLUGIN_ROOT": "/codex-plugin",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            assert get_host() == "pi"
+            assert get_project_dir() == Path(workdir)
+            assert get_memories_dir() == Path(workdir) / ".improve-toolkit" / "memories"
+
+
 def test_codex_plugin_root_detection():
     with tempfile.TemporaryDirectory(prefix="rp_plugin_") as workdir:
         env = {
@@ -275,6 +289,7 @@ def test_prepare_data_home_creates_default_config():
 ALL_TESTS = [
     test_claude_defaults,
     test_codex_defaults,
+    test_pi_overrides_inherited_host_environment,
     test_codex_plugin_root_detection,
     test_path_overrides,
     test_memory_override,
