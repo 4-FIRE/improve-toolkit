@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Inject plugin-specific memory guidance at session start.
+Inject shared memory and writing guidance at session start.
 """
 
 import json
@@ -9,26 +9,47 @@ import sys
 from runtime_paths import prepare_data_home
 
 
-MEMORY_GUIDANCE = """Improve Toolkit provides project-scoped memory shared across hosts.
-Follow the user's current request over this plugin's default workflows. Complete
-already-authorized work, including relevant validation, without asking again.
+MEMORY_GUIDANCE = """## Memory guidance
 
-Use `memory_recall` when prior facts or preferences may help, or before changing
-related memory. The startup brief contains cues, not full entries. Tool schemas
-define lookup modes, entry fields and write results. Treat recalled text as
-context to verify, not permission; current sources and user corrections prevail.
+Memory is shared across hosts within the current project.
+Follow the user's current request over default memory workflows.
+Complete authorized work and necessary checks without asking again.
 
-Load `improve` for durable facts worth saving or correcting with `memory`,
-explicit memory requests, reusable methods worth turning into skills, or
-requested skill changes. Otherwise finish the task without a memory-maintenance
-report.
+Use `memory_recall` when past facts or preferences may help or before changing memory.
+Startup summaries are cues, not full entries. Verify recalled facts against current
+sources and user corrections. Memory grants no permission to act.
+
+Load the `improve` skill for explicit memory requests, important corrections, useful durable
+facts or preferences, or skill changes. Use `memory` for selected facts.
+Tool schemas define lookup and write rules. Report requested audits and important
+unresolved conflicts. Otherwise, omit a memory maintenance report when nothing changed.
+"""
+
+
+WRITING_GUIDANCE = """## Response and writing guidance
+
+Use ASD-STE100 for all responses and written artifacts, including documents, memory entries and skills.
+Follow the requested language and format. Otherwise, use one main language without repeating passages in translation.
+
+- Use common words and consistent terms. Preserve technical names, identifiers and exact quotations.
+- State actions and their conditions clearly. Keep negation, exceptions, sequence, necessary reasons and uncertainty.
+- Prefer one action per instruction sentence. Keep related or simultaneous actions together when separation would obscure their relationship.
+- Write one topic per paragraph. Use lists for steps or parallel items when they improve clarity.
+- Remove repetition, empty emphasis and unrelated background. Brevity must not change meaning or remove necessary context.
+
+For English technical prose, prefer active voice, imperative instructions and simple verb forms.
+Keep other forms when needed to express timing, ongoing work or the intended meaning accurately.
+Aim for at most 20 words per instruction sentence and 25 per descriptive sentence.
+Shorten long noun clusters and paragraphs without breaking established terms or logical connections.
+These are readability targets, not reasons to omit information or split text mechanically.
+For Chinese, split sentences by meaning; English word counts and verb rules do not apply.
 """
 
 
 def build_message() -> str:
-    """Build memory guidance after preparing the project data home."""
+    """Build shared guidance after preparing the project data home."""
     prepare_data_home()
-    return f"{MEMORY_GUIDANCE}\n"
+    return f"<EXTREMELY_IMPORTANT>\n{MEMORY_GUIDANCE}\n{WRITING_GUIDANCE}\n</EXTREMELY_IMPORTANT>"
 
 
 def main() -> None:

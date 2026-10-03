@@ -9,7 +9,7 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
 - **分层记忆**：MCP 服务 `improve` 暴露写入工具 `memory` 和按需检索工具
   `memory_recall`。正文仍分别保存在 `MEMORY.md` 与 `USER.md`，启动阶段只读取
   `SUMMARY.md`，不会加载全量正文。
-- **会话上下文**：`session_context.py` 注入本插件的记忆用途与按需整理条件，
+- **会话上下文**：`session_context.py` 注入记忆用途、按需整理条件及适用于所有输出的写作原则，
   `load_memory.py` 注入有字符上限的摘要。代理在任务与摘要相关、历史决策可能有用，
   或修改旧记忆前调用 `memory_recall`，只取有限条相关正文。
 - **可并发修改与有限安全检查**：记忆更新使用稳定 `entry_id`、乐观并发版本
@@ -28,6 +28,12 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
 技能按具体任务加载，复杂记忆整理和多轮讨论的控制说明按需读取。用户已经要求的
 修改直接完成并做相关验证；主动发现的新技能方法先准备具体建议。讨论默认逐轮
 互动，用户要求连续多轮或一次完成时按其要求推进。
+
+全局写作指导参考 [ASD-STE100 Issue 9](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf)，
+适用于回复、文档、记忆和技能。默认使用常用词、统一名称、明确动作和短句，并保留
+适用条件、否定、例外及必要原因。英语句长作为可读性目标，中文按语义分句；
+准确表达优先于机械缩短。这是适合日常技术交流的简化指导，不代表完整 STE 合规。
+任务要求严格遵循 STE 时，应查阅官方规则与词典，核对批准词义和计词方式。
 
 ## 环境要求
 
@@ -109,7 +115,7 @@ pi 扩展以参数数组直接启动 Python，兼容包含空格的路径；Wind
 ```text
 hooks/hooks.json
   └─ scripts/run_hook
-       ├─ session_context.py  → 记忆用途与按需整理条件
+       ├─ session_context.py  → 记忆用途、按需整理条件与通用写作原则
        └─ load_memory.py      → SUMMARY.md 有界摘要（不读取全量正文）
 
 .mcp.json / .claude-plugin/plugin.json
@@ -120,7 +126,7 @@ package.json（pi）
   ├─ skills/                  → 原有共享技能
   └─ extensions/improve.ts
        ├─ session_start / session_compact → 共享 Python 启动脚本
-       ├─ before_agent_start → 独立提示词片段中的记忆说明与有界摘要
+       ├─ before_agent_start → 独立提示词片段中的通用指导与有界摘要
        └─ memory / memory_recall → 同一个 server.py（stdio MCP）
 ```
 

@@ -101,15 +101,17 @@ def test_codex_runtime_data_home_created():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_context_exposes_memory_tools_without_global_persona():
+def test_context_contains_memory_and_writing_sections():
     workdir = Path(tempfile.mkdtemp(prefix="sc_memory_test_"))
     try:
         data = run_hook(workdir)
         context = data["hookSpecificOutput"]["additionalContext"]
-        assert "Improve Toolkit" in context
-        assert "`memory_recall`" in context
-        assert "`memory`" in context
-        assert "<EXTREMELY_IMPORTANT>" not in context
+        headings = [line for line in context.splitlines() if line.startswith("## ")]
+        assert headings == ["## Memory guidance", "## Response and writing guidance"]
+        memory_section, writing_section = context.split(headings[1])
+        assert "`memory_recall`" in memory_section
+        assert "`memory`" in memory_section
+        assert "ASD-STE100" in writing_section
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -149,7 +151,7 @@ ALL_TESTS = [
     test_runtime_data_home_created_without_workbench,
     test_code_execution_guidance_removed,
     test_codex_runtime_data_home_created,
-    test_context_exposes_memory_tools_without_global_persona,
+    test_context_contains_memory_and_writing_sections,
     test_hosts_receive_identical_plugin_guidance,
     test_import_has_no_runtime_side_effects,
 ]

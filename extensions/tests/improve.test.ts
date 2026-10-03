@@ -37,7 +37,6 @@ test("pi shares memory, isolates projects, and refreshes startup context", async
     assert.deepEqual([...pi.tools.keys()].sort(), ["memory", "memory_recall"]);
     const initial = { systemPrompt: "Base prompt", systemPromptOptions: { sections: { existing: "keep" } } };
     assert.equal(await pi.emit("before_agent_start", initial), undefined);
-    assert.match(initial.systemPromptOptions.sections.improve_toolkit, /^Improve Toolkit/);
     assert.equal(initial.systemPromptOptions.sections.existing, "keep");
     const added = await pi.call("memory", {
       action: "add", target: "memory", content: "Project uses cedar fixtures.", summary: "Cedar fixtures", startup: "always",
@@ -55,7 +54,6 @@ test("pi shares memory, isolates projects, and refreshes startup context", async
     const refreshed = { systemPrompt: "Base prompt", systemPromptOptions: { sections: {} } };
     await pi.emit("before_agent_start", refreshed);
     assert.match(refreshed.systemPromptOptions.sections.improve_toolkit, /Cedar fixtures/);
-    assert.equal(refreshed.systemPromptOptions.sections.improve_toolkit.split("Improve Toolkit provides").length, 2);
     await assert.rejects(pi.call("memory_recall", { query: "cedar" }, project, AbortSignal.abort()));
     await pi.emit("session_shutdown");
     await pi.emit("session_shutdown");
@@ -65,6 +63,14 @@ test("pi shares memory, isolates projects, and refreshes startup context", async
     const resumed = { systemPrompt: "Base", systemPromptOptions: { sections: {} } };
     await pi.emit("before_agent_start", resumed);
     assert.match(resumed.systemPromptOptions.sections.improve_toolkit, /Cedar fixtures/);
+    for (const event of [initial, refreshed, resumed]) {
+      const context = event.systemPromptOptions.sections.improve_toolkit;
+      assert.deepEqual(context.match(/^## .+$/gm), ["## Memory guidance", "## Response and writing guidance"]);
+      const [memorySection, writingSection] = context.split("## Response and writing guidance");
+      assert.ok(memorySection.includes("`memory_recall`"));
+      assert.ok(memorySection.includes("`memory`"));
+      assert.ok(writingSection.includes("ASD-STE100"));
+    }
     assert.equal((await pi.call("memory_recall", { query: "cedar" })).entries.length, 1);
   } finally {
     await pi.emit("session_shutdown");
