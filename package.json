@@ -1,6 +1,6 @@
 {
   "name": "improve-toolkit",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Shared project memory and skills for pi, Codex, and Claude Code",
   "type": "module",
   "license": "MIT",
