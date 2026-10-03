@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
@@ -32,7 +32,9 @@ test("installed pi loads the package, six skills, and callable memory tools", {
     assert.deepEqual(resourceLoader.getExtensions().errors, []);
     assert.equal(resourceLoader.getExtensions().extensions.length, 1);
     assert.deepEqual(resourceLoader.getSkills().diagnostics, []);
-    assert.deepEqual(resourceLoader.getSkills().skills.map(s => s.name).sort(), [
+    // Newer pi also discovers user skills; check this package without depending on the user profile.
+    const packageSkills = resourceLoader.getSkills().skills.filter(s => s.filePath.startsWith(join(root, "skills") + sep));
+    assert.deepEqual(packageSkills.map(s => s.name).sort(), [
       "domain-modeling", "grill-with-docs", "grilling", "improve", "roundtable", "simple",
     ]);
     ({ session } = await createAgentSession({
