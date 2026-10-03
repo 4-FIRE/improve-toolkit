@@ -34,9 +34,7 @@ def _matches_missing_id(entry: StoredEntry, record: dict) -> bool:
     if record.get("id") not in (None, "") or not isinstance(content_hash, str):
         return False
     contents = {entry.content}
-    summary, source = record.get("summary"), record.get("source")
-    if isinstance(summary, str) and summary.strip() and entry.content.startswith(summary.strip() + "\n"):
-        contents.add(entry.content[len(summary.strip()) + 1:])
+    source = record.get("source")
     if isinstance(source, str) and source.strip():
         suffix = "\nSource: " + source.strip()
         contents.update(content[:-len(suffix)] for content in tuple(contents) if content.endswith(suffix))
@@ -123,14 +121,15 @@ def upgrade_memory_files(memory_dir: Path) -> bool:
             if not candidates:
                 unmatched_entries.append(f"{target} entry {len(blocks) + 1}")
             entry_id = record.get("id")
+            source = record.get("source")
             if candidates and (
                 (entry_id not in (None, "") and (
                     not isinstance(entry_id, str) or not ENTRY_ID_PATTERN.fullmatch(entry_id) or entry_id in used_ids
                 )) or record.get("startup", "auto") not in ("always", "auto", "never")
-                or any(record.get(key) is not None and (
-                    not isinstance(record[key], str) or "§" in record[key].splitlines()
-                    or "<!-- improve-entry" in record[key]
-                ) for key in ("summary", "source"))
+                or (source is not None and (
+                    not isinstance(source, str) or "§" in source.splitlines()
+                    or "<!-- improve-entry" in source
+                ))
             ):
                 logger.warning("Retained invalid legacy settings at %s:%d", metadata_path, candidates[0][0])
                 unresolved = True
@@ -143,10 +142,7 @@ def upgrade_memory_files(memory_dir: Path) -> bool:
                     entry_id = new_entry_id(target, timestamp)
             used_ids.add(entry_id)
             content = entry.content
-            summary = (record.get("summary") or "").strip()
-            source = (record.get("source") or "").strip()
-            if summary and " ".join(summary.removesuffix("…").split()) not in " ".join(content.split()):
-                content = summary + "\n" + content
+            source = (source or "").strip()
             if source and source not in content:
                 content += "\nSource: " + source
             blocks.append(render_entry(content, entry_id, record.get("startup") != "never", updated_at=timestamp))

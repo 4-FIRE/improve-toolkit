@@ -30,7 +30,7 @@ def seed(root: Path) -> MemoryCatalog:
     return MemoryCatalog(memory_dir=memory_dir, data_home=root)
 
 
-def test_migration_preserves_ids_opt_out_and_unique_summary_and_source() -> None:
+def test_migration_preserves_ids_opt_out_and_source() -> None:
     with tempfile.TemporaryDirectory() as workdir:
         catalog = seed(Path(workdir))
         original = {p.name: p.read_text() for p in catalog.memory_dir.iterdir()}
@@ -38,7 +38,7 @@ def test_migration_preserves_ids_opt_out_and_unique_summary_and_source() -> None
         entries = catalog.recall(mode="browse").entries
         assert {entry["entry_id"] for entry in entries} == {"u:old", "m:old"}
         memory = parse_entries((catalog.memory_dir / "MEMORY.md").read_text())[0]
-        assert memory.content == "Custom release cue\nProject fact\nSource: AGENTS.md"
+        assert memory.content == "Project fact\nSource: AGENTS.md"
         assert memory.entry_id == "m:old" and memory.startup is False
         assert "Custom release cue" not in snapshot.text
         assert "User preference" in snapshot.text
@@ -79,17 +79,26 @@ def test_truncated_summaries_do_not_add_duplicate_lines_to_long_entries() -> Non
                 assert not upgrade_memory_files(memory_dir)
 
 
-def test_distinct_summary_with_ellipsis_is_preserved() -> None:
-    with tempfile.TemporaryDirectory() as workdir:
-        catalog = seed(Path(workdir))
-        metadata = catalog.memory_dir / "METADATA.jsonl"
-        records = [json.loads(line) for line in metadata.read_text().splitlines()]
-        records[0]["summary"] = "Custom release cue…"
-        metadata.write_text("\n".join(json.dumps(record) for record in records))
-        catalog.ensure_startup_snapshot()
-        entry = parse_entries((catalog.memory_dir / "MEMORY.md").read_text())[0]
-        assert entry.content == "Custom release cue…\nProject fact\nSource: AGENTS.md"
-        assert entry.entry_id == "m:old" and entry.startup is False
+def test_legacy_summary_values_are_ignored_and_kept_only_in_backup() -> None:
+    for summary in ("Custom release cue…", "Section one\n§\nSection two", {"bad": "type"}, ["bad"], False, None):
+        with tempfile.TemporaryDirectory() as workdir:
+            catalog = seed(Path(workdir))
+            metadata = catalog.memory_dir / "METADATA.jsonl"
+            records = [json.loads(line) for line in metadata.read_text().splitlines()]
+            records[0]["summary"] = summary
+            records[1]["summary"] = summary
+            metadata.write_text("\n".join(json.dumps(record) for record in records))
+            snapshot = catalog.ensure_startup_snapshot()
+            memory = parse_entries((catalog.memory_dir / "MEMORY.md").read_text())[0]
+            user = parse_entries((catalog.memory_dir / "USER.md").read_text())[0]
+            assert memory.content == "Project fact\nSource: AGENTS.md"
+            assert memory.entry_id == "m:old" and memory.startup is False
+            assert user.content == "User preference" and "User preference" in snapshot.text
+            assert catalog.recall(mode="get", entry_id="u:old").entries[0]["summary"] == "User preference"
+            assert "Project fact" not in snapshot.text
+            saved = json.loads((catalog.memory_dir / BACKUP_FILENAME).read_text())["METADATA.jsonl"]
+            assert json.loads(saved.splitlines()[0])["summary"] == summary
+            assert not metadata.exists()
 
 
 def test_unmatched_and_bad_records_are_retained_and_reported() -> None:
@@ -129,7 +138,8 @@ def test_interrupted_migration_resumes_without_replacing_backup_or_duplicating_t
         assert catalog.ensure_startup_snapshot().status == "current"
         assert (catalog.memory_dir / BACKUP_FILENAME).read_bytes() == backup
         memory = parse_entries((catalog.memory_dir / "MEMORY.md").read_text())[0]
-        assert memory.content.count("Custom release cue") == memory.content.count("AGENTS.md") == 1
+        assert "Custom release cue" not in memory.content
+        assert memory.content.count("AGENTS.md") == 1
         assert memory.startup is False
         assert not (catalog.memory_dir / "METADATA.jsonl").exists()
 
@@ -223,12 +233,12 @@ def test_bad_record_shapes_and_existing_bad_backup_are_reported() -> None:
 
 
 def test_unresolved_entry_settings_block_reads_and_writes_until_repaired() -> None:
-    for damage in ("source", "summary", "id", "id_type", "startup", "ambiguous", "unmatched", "bad_json"):
+    for damage in ("source", "id", "id_type", "startup", "ambiguous", "unmatched", "bad_json"):
         with tempfile.TemporaryDirectory() as workdir:
             catalog = seed(Path(workdir))
             metadata = catalog.memory_dir / "METADATA.jsonl"
             records = [json.loads(line) for line in metadata.read_text().splitlines()]
-            if damage in ("source", "summary"):
+            if damage == "source":
                 records[0][damage] = "Section one\n§\nSection two"
             elif damage == "id":
                 records[0]["id"] = "invalid id"
@@ -348,6 +358,8 @@ def test_missing_id_migration_resumes_with_the_same_id() -> None:
             except MemoryCatalogError as exc:
                 assert exc.code == "MIGRATION_ERROR"
         user_before = (catalog.memory_dir / "USER.md").read_bytes()
+        assert "Custom user cue" not in user_before.decode()
+        assert parse_entries(user_before.decode())[0].content == "User preference\nSource: USER.md"
         backup = (catalog.memory_dir / BACKUP_FILENAME).read_bytes()
         assert catalog.ensure_startup_snapshot().status == "current"
         assert (catalog.memory_dir / "USER.md").read_bytes() == user_before
