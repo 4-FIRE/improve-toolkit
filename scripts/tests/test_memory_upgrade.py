@@ -50,6 +50,48 @@ def test_migration_preserves_ids_opt_out_and_unique_summary_and_source() -> None
         assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in catalog.memory_dir.iterdir()}
 
 
+def test_truncated_summaries_do_not_add_duplicate_lines_to_long_entries() -> None:
+    contents = [
+        "qmt-rpyc 0.3.1rc1 的 xtdata.get_local_data 签名以 field_list 为首参、stock_list 为第二参；沿用旧的 stock_list 首参调用会触发 get_market_data3 TypeError。",
+        "qmt-rpyc 0.3.1rc1 的 xtdata.get_etf_info 中 ReplaceFlag/ReplaceRatio 返回明显垃圾值且 ReplaceBalance 为 null，不能用于 ETF 现金替代穿透；stocks.componentVolume 与 navPerCU 可用。",
+    ]
+    for body in contents + ["A" * 119, "A" * 120, "A" * 121, "A   " * 50 + "\r\nDetail"]:
+        for target, name in (("memory", "MEMORY.md"), ("user", "USER.md")):
+            with tempfile.TemporaryDirectory() as workdir:
+                root = Path(workdir)
+                memory_dir = root / "memories"
+                memory_dir.mkdir()
+                (memory_dir / name).write_bytes(body.encode())
+                first_line = " ".join(body.splitlines()[0].split())
+                summary = first_line if len(first_line) <= 120 else first_line[:119] + "…"
+                record = {
+                    "id": "old:entry", "target": target, "summary": summary,
+                    "content_hash": hashlib.sha256(body.encode()).hexdigest(), "startup": "always",
+                }
+                (memory_dir / "METADATA.jsonl").write_text(json.dumps(record))
+                catalog = MemoryCatalog(memory_dir=memory_dir, data_home=root)
+                assert catalog.ensure_startup_snapshot().status == "current"
+                entries = parse_entries((memory_dir / name).read_bytes().decode())
+                assert len(entries) == 1 and entries[0].content == body
+                assert entries[0].entry_id == "old:entry" and entries[0].startup is True
+                assert catalog.recall(mode="get", entry_id="old:entry").entries[0]["content"] == body
+                assert json.loads((memory_dir / BACKUP_FILENAME).read_text())[name] == body
+                assert not upgrade_memory_files(memory_dir)
+
+
+def test_distinct_summary_with_ellipsis_is_preserved() -> None:
+    with tempfile.TemporaryDirectory() as workdir:
+        catalog = seed(Path(workdir))
+        metadata = catalog.memory_dir / "METADATA.jsonl"
+        records = [json.loads(line) for line in metadata.read_text().splitlines()]
+        records[0]["summary"] = "Custom release cue…"
+        metadata.write_text("\n".join(json.dumps(record) for record in records))
+        catalog.ensure_startup_snapshot()
+        entry = parse_entries((catalog.memory_dir / "MEMORY.md").read_text())[0]
+        assert entry.content == "Custom release cue…\nProject fact\nSource: AGENTS.md"
+        assert entry.entry_id == "m:old" and entry.startup is False
+
+
 def test_unmatched_and_bad_records_are_retained_and_reported() -> None:
     with tempfile.TemporaryDirectory() as workdir:
         catalog = seed(Path(workdir))

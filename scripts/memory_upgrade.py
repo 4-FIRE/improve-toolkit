@@ -145,7 +145,7 @@ def upgrade_memory_files(memory_dir: Path) -> bool:
             content = entry.content
             summary = (record.get("summary") or "").strip()
             source = (record.get("source") or "").strip()
-            if summary and " ".join(summary.split()) not in " ".join(content.split()):
+            if summary and " ".join(summary.removesuffix("…").split()) not in " ".join(content.split()):
                 content = summary + "\n" + content
             if source and source not in content:
                 content += "\nSource: " + source
