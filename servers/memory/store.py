@@ -1,40 +1,16 @@
 #!/usr/bin/env python3
-"""
-Memory Store Module - Persistent Curated Memory
-
-Bounded, file-backed memory that persists across sessions. Two stores:
-  - MEMORY.md: agent's personal notes and observations (environment facts, project
-    conventions, tool quirks, things learned)
-  - USER.md: what the agent knows about the user (preferences, communication style,
-    expectations, workflow habits)
-
-Production SessionStart loads only the catalog's bounded SUMMARY.md projection.
-The legacy snapshot helpers below remain for compatibility; the hook does not
-inject the complete stores. Mid-session writes persist immediately and are
-available through on-demand recall.
-
-Entry delimiter: § (section sign). Entries can be multiline.
-Character limits (not tokens) because char counts are model-independent.
-"""
+"""Project memory views, diagnostic logging and the change audit."""
 
 import json
 import logging
 import os
-import time
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, Optional
 
-from file_ops import atomic_write_text, file_lock
-from memory_format import (
-    char_count as memory_char_count,
-    deduplicate_entries,
-    join_entries,
-    render_block,
-    split_entries,
-)
-from memory_catalog import MemoryCatalog, scan_memory_content
+from memory_format import parse_entries
+from memory_catalog import MemoryCatalog, MemoryCatalogError
 
 from .utils import get_home
 
@@ -58,15 +34,6 @@ _ACTIVE_DATA_HOME: ContextVar[Optional[Path]] = ContextVar(
 # Setup is best-effort: if the log dir is not writable we silently degrade --
 # logging must never break the memory tool itself.
 # ---------------------------------------------------------------------------
-
-# How long _file_lock waits before giving up. The old code used blocking
-# flock() which would hang forever if a peer process died holding the lock or
-# if the OS lock got wedged -- this is the most likely cause of the
-# "add/replace 卡住" reports. A bounded timeout turns a permanent hang into a
-# logged, recoverable error.
-LOCK_TIMEOUT_SECONDS = 15.0
-LOCK_POLL_INTERVAL = 0.1
-
 
 def _log_dir() -> Path:
     data_home = _ACTIVE_DATA_HOME.get()
@@ -126,493 +93,41 @@ def get_memory_dir(data_home: Optional[Path] = None) -> Path:
     """Return the memories child of a runtime data directory."""
     return (data_home if data_home is not None else get_home()) / "memories"
 
-def _scan_memory_content(content: str) -> Optional[str]:
-    """Compatibility wrapper around the shared catalog scanner."""
-    threat = scan_memory_content(content)
-    if threat is None:
-        return None
-    if threat.startswith("invisible_unicode_U+"):
-        return (
-            "Blocked: content contains invisible unicode character "
-            f"{threat.removeprefix('invisible_unicode_')} (possible injection)."
-        )
-    return (
-        f"Blocked: content matches threat pattern '{threat}'. "
-        "Memory entries must not contain injection or exfiltration payloads."
-    )
-
-
-def _normalize_whitespace(text: str) -> str:
-    """Normalize whitespace for fuzzy matching."""
-    return ' '.join(text.split())
-
-
-def _fuzzy_match_entries(entries: List[str], search_text: str) -> List[Tuple[int, str]]:
-    """Find entries matching search_text using fuzzy matching.
-
-    Returns list of (index, entry) tuples.
-    """
-    search_text = search_text.strip()
-    matches = []
-
-    # Strategy 1: Exact match
-    for i, entry in enumerate(entries):
-        if search_text in entry:
-            matches.append((i, entry))
-
-    if matches:
-        return matches
-
-    # Strategy 2: Whitespace normalized match
-    search_normalized = _normalize_whitespace(search_text)
-    for i, entry in enumerate(entries):
-        entry_normalized = _normalize_whitespace(entry)
-        if search_normalized in entry_normalized:
-            matches.append((i, entry))
-
-    return matches
-
-
 class MemoryStore:
-    """
-    Bounded curated memory with file persistence. One instance per AIAgent.
-
-    Maintains two parallel states:
-      - _system_prompt_snapshot: frozen at load time, used for system prompt injection.
-        Never mutated mid-session. Keeps prefix cache stable.
-      - memory_entries / user_entries: live state, mutated by tool calls, persisted to disk.
-        Tool responses always reflect this live state.
-    """
+    """Hold the project paths, limits and body views used by MCP adapters."""
 
     def __init__(
         self,
-        memory_char_limit: Optional[int] = None,
-        user_char_limit: Optional[int] = None,
-        data_home: Optional[Path] = None,
-        memory_dir: Optional[Path] = None,
-    ):
-        self.memory_entries: List[str] = []
-        self.user_entries: List[str] = []
+        memory_char_limit: int | None = None,
+        user_char_limit: int | None = None,
+        data_home: Path | None = None,
+        memory_dir: Path | None = None,
+    ) -> None:
         self.data_home = Path(data_home) if data_home is not None else get_home()
-        self.memory_dir = (
-            Path(memory_dir)
-            if memory_dir is not None
-            else get_memory_dir(self.data_home)
+        self.memory_dir = Path(memory_dir) if memory_dir is not None else get_memory_dir(self.data_home)
+        catalog = MemoryCatalog(
+            memory_dir=self.memory_dir, data_home=self.data_home,
+            memory_char_limit=memory_char_limit, user_char_limit=user_char_limit,
         )
-        catalog_config = MemoryCatalog(
-            memory_dir=self.memory_dir,
-            data_home=self.data_home,
-            memory_char_limit=memory_char_limit,
-            user_char_limit=user_char_limit,
-        )
-        self.memory_char_limit = catalog_config.memory_char_limit
-        self.user_char_limit = catalog_config.user_char_limit
-        # Frozen snapshot for system prompt -- set once at load_from_disk()
-        self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
+        self.memory_char_limit = catalog.memory_char_limit
+        self.user_char_limit = catalog.user_char_limit
+        self.memory_entries: list[str] = []
+        self.user_entries: list[str] = []
 
-    def load_from_disk(self):
-        """Load entries from MEMORY.md and USER.md, capture system prompt snapshot."""
-        mem_dir = self.memory_dir
-        mem_dir.mkdir(parents=True, exist_ok=True)
-
-        self.memory_entries = self._read_file(mem_dir / "MEMORY.md")
-        self.user_entries = self._read_file(mem_dir / "USER.md")
-
-        # Deduplicate entries (preserves order, keeps first occurrence)
-        self.memory_entries = deduplicate_entries(self.memory_entries)
-        self.user_entries = deduplicate_entries(self.user_entries)
-
-        # Capture frozen snapshot for system prompt injection
-        self._system_prompt_snapshot = {
-            "memory": render_block(
-                "memory",
-                self.memory_entries,
-                limit=self.memory_char_limit,
-            ),
-            "user": render_block(
-                "user",
-                self.user_entries,
-                limit=self.user_char_limit,
-            ),
-        }
-
-    @staticmethod
-    def _file_lock(path: Path):
-        """Return the shared sibling-lock context for a memory mutation."""
-        _ensure_logger()
-        lock_path = path.with_suffix(path.suffix + ".lock")
-        return file_lock(
-            lock_path,
-            timeout=LOCK_TIMEOUT_SECONDS,
-            poll_interval=LOCK_POLL_INTERVAL,
-            logger=logger,
-            description=f"memory lock {lock_path}",
-        )
-
-    def _path_for(self, target: str) -> Path:
-        if target == "user":
-            return self.memory_dir / "USER.md"
-        return self.memory_dir / "MEMORY.md"
-
-    def _reload_target(self, target: str):
-        """Re-read entries from disk into in-memory state.
-
-        Called under file lock to get the latest state before mutating.
-        """
-        fresh = self._read_file(self._path_for(target))
-        fresh = deduplicate_entries(fresh)
-        self._set_entries(target, fresh)
-
-    def save_to_disk(self, target: str):
-        """Persist entries to the appropriate file. Called after every mutation."""
+    def load_from_disk(self) -> None:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
-        self._write_file(self._path_for(target), self._entries_for(target))
-
-    def _entries_for(self, target: str) -> List[str]:
-        if target == "user":
-            return self.user_entries
-        return self.memory_entries
-
-    def _set_entries(self, target: str, entries: List[str]):
-        if target == "user":
-            self.user_entries = entries
-        else:
-            self.memory_entries = entries
-
-    def _char_count(self, target: str) -> int:
-        return memory_char_count(self._entries_for(target))
-
-    def _char_limit(self, target: str) -> int:
-        if target == "user":
-            return self.user_char_limit
-        return self.memory_char_limit
-
-    def add(self, target: str, content: str) -> Dict[str, Any]:
-        """Append a new entry. Returns error if it would exceed the char limit."""
-        _ensure_logger()
-        logger.info("add: target=%s content_len=%d preview=%r", target, len(content or ""), _preview(content))
-        content = content.strip()
-        if not content:
-            logger.info("add: rejected empty content (target=%s)", target)
-            _append_audit({"action": "add", "target": target, "result": "empty"})
-            return {"success": False, "error": "Content cannot be empty."}
-
-        # Scan for injection/exfiltration before accepting
-        scan_error = _scan_memory_content(content)
-        if scan_error:
-            logger.warning("add: blocked by scan (%s) target=%s preview=%r", scan_error, target, _preview(content))
-            _append_audit({"action": "add", "target": target, "result": "blocked", "error": scan_error})
-            return {"success": False, "error": scan_error}
-
-        try:
-            with self._file_lock(self._path_for(target)):
-                logger.debug("add: lock held, reloading target=%s", target)
-                # Re-read from disk under lock to pick up writes from other sessions
-                self._reload_target(target)
-
-                entries = self._entries_for(target)
-                limit = self._char_limit(target)
-                logger.debug("add: target=%s current_entries=%d chars=%d/%d",
-                             target, len(entries), self._char_count(target), limit)
-
-                # Reject exact duplicates
-                if content in entries:
-                    logger.info("add: duplicate, no-op (target=%s)", target)
-                    _append_audit({"action": "add", "target": target, "result": "duplicate"})
-                    return self._success_response(target, "Entry already exists (no duplicate added).")
-
-                # Calculate what the new total would be
-                new_entries = entries + [content]
-                new_total = memory_char_count(new_entries)
-
-                if new_total > limit:
-                    current = self._char_count(target)
-                    logger.info("add: over limit (target=%s %d/%d + %d)",
-                                target, current, limit, len(content))
-                    _append_audit({
-                        "action": "add", "target": target, "result": "over_limit",
-                        "chars_before": current, "limit": limit, "added_chars": len(content),
-                    })
-                    return {
-                        "success": False,
-                        "error": (
-                            f"Memory at {current:,}/{limit:,} chars. "
-                            f"Adding this entry ({len(content)} chars) would exceed the limit. "
-                            f"Replace or remove existing entries first."
-                        ),
-                        "current_entries": entries,
-                        "usage": f"{current:,}/{limit:,}",
-                    }
-
-                entries.append(content)
-                self._set_entries(target, entries)
-                logger.debug("add: persisting target=%s entries=%d", target, len(entries))
-                self.save_to_disk(target)
-        except TimeoutError as exc:
-            logger.error("add: lock timeout (target=%s): %s", target, exc)
-            _append_audit({"action": "add", "target": target, "result": "lock_timeout", "error": str(exc)})
-            return {"success": False, "error": f"Memory write timed out: {exc}"}
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("add: unexpected error (target=%s)", target)
-            _append_audit({"action": "add", "target": target, "result": "error", "error": str(exc)})
-            return {"success": False, "error": f"Memory write failed: {exc}"}
-
-        logger.info("add: OK target=%s entries=%d preview=%r",
-                    target, len(self._entries_for(target)), _preview(content))
-        _append_audit({
-            "action": "add", "target": target, "result": "ok",
-            "content_preview": _preview(content), "content_len": len(content),
-        })
-        return self._success_response(target, "Entry added.")
-
-    def replace(self, target: str, old_text: str, new_content: str) -> Dict[str, Any]:
-        """Find entry containing old_text substring, replace it with new_content."""
-        _ensure_logger()
-        logger.info("replace: target=%s old_text=%r new_len=%d preview=%r",
-                    target, _preview(old_text), len(new_content or ""), _preview(new_content))
-        old_text = old_text.strip()
-        new_content = new_content.strip()
-        if not old_text:
-            logger.info("replace: rejected empty old_text (target=%s)", target)
-            _append_audit({"action": "replace", "target": target, "result": "empty_old"})
-            return {"success": False, "error": "old_text cannot be empty."}
-        if not new_content:
-            logger.info("replace: rejected empty new_content (target=%s)", target)
-            _append_audit({"action": "replace", "target": target, "result": "empty_new"})
-            return {"success": False, "error": "new_content cannot be empty. Use 'remove' to delete entries."}
-
-        # Scan replacement content for injection/exfiltration
-        scan_error = _scan_memory_content(new_content)
-        if scan_error:
-            logger.warning("replace: blocked by scan (%s) target=%s", scan_error, target)
-            _append_audit({"action": "replace", "target": target, "result": "blocked", "error": scan_error})
-            return {"success": False, "error": scan_error}
-
-        try:
-            with self._file_lock(self._path_for(target)):
-                logger.debug("replace: lock held, reloading target=%s", target)
-                self._reload_target(target)
-
-                entries = self._entries_for(target)
-                matches = _fuzzy_match_entries(entries, old_text)
-                logger.debug("replace: target=%s entries=%d matches=%d",
-                             target, len(entries), len(matches))
-
-                if not matches:
-                    logger.info("replace: no match (target=%s old_text=%r)", target, _preview(old_text))
-                    _append_audit({
-                        "action": "replace", "target": target, "result": "no_match",
-                        "old_text": _preview(old_text),
-                    })
-                    return {"success": False, "error": f"No entry matched '{old_text}'."}
-
-                if len(matches) > 1:
-                    # If all matches are identical (exact duplicates), operate on the first one
-                    unique_texts = set(e for _, e in matches)
-                    if len(unique_texts) > 1:
-                        previews = [e[:80] + ("..." if len(e) > 80 else "") for _, e in matches]
-                        logger.info("replace: ambiguous match (%d entries) target=%s", len(matches), target)
-                        _append_audit({
-                            "action": "replace", "target": target, "result": "ambiguous",
-                            "match_count": len(matches),
-                        })
-                        return {
-                            "success": False,
-                            "error": f"Multiple entries matched '{old_text}'. Be more specific.",
-                            "matches": previews,
-                        }
-                    # All identical -- safe to replace just the first
-
-                idx = matches[0][0]
-                limit = self._char_limit(target)
-                before_preview = _preview(entries[idx])
-
-                # Check that replacement doesn't blow the budget
-                test_entries = entries.copy()
-                test_entries[idx] = new_content
-                new_total = memory_char_count(test_entries)
-
-                if new_total > limit:
-                    logger.info("replace: over limit (target=%s %d/%d)", target, new_total, limit)
-                    _append_audit({
-                        "action": "replace", "target": target, "result": "over_limit",
-                        "chars_after": new_total, "limit": limit,
-                    })
-                    return {
-                        "success": False,
-                        "error": (
-                            f"Replacement would put memory at {new_total:,}/{limit:,} chars. "
-                            f"Shorten the new content or remove other entries first."
-                        ),
-                    }
-
-                entries[idx] = new_content
-                self._set_entries(target, entries)
-                logger.debug("replace: persisting target=%s idx=%d", target, idx)
-                self.save_to_disk(target)
-        except TimeoutError as exc:
-            logger.error("replace: lock timeout (target=%s): %s", target, exc)
-            _append_audit({"action": "replace", "target": target, "result": "lock_timeout", "error": str(exc)})
-            return {"success": False, "error": f"Memory write timed out: {exc}"}
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("replace: unexpected error (target=%s)", target)
-            _append_audit({"action": "replace", "target": target, "result": "error", "error": str(exc)})
-            return {"success": False, "error": f"Memory write failed: {exc}"}
-
-        logger.info("replace: OK target=%s idx=%d before=%r after=%r",
-                    target, matches[0][0], before_preview, _preview(new_content))
-        _append_audit({
-            "action": "replace", "target": target, "result": "ok",
-            "old_text": _preview(old_text),
-            "before_preview": before_preview,
-            "after_preview": _preview(new_content),
-        })
-        return self._success_response(target, "Entry replaced.")
-
-    def remove(self, target: str, old_text: str) -> Dict[str, Any]:
-        """Remove the entry containing old_text substring."""
-        _ensure_logger()
-        logger.info("remove: target=%s old_text=%r", target, _preview(old_text))
-        old_text = old_text.strip()
-        if not old_text:
-            logger.info("remove: rejected empty old_text (target=%s)", target)
-            _append_audit({"action": "remove", "target": target, "result": "empty_old"})
-            return {"success": False, "error": "old_text cannot be empty."}
-
-        try:
-            with self._file_lock(self._path_for(target)):
-                logger.debug("remove: lock held, reloading target=%s", target)
-                self._reload_target(target)
-
-                entries = self._entries_for(target)
-                matches = _fuzzy_match_entries(entries, old_text)
-                logger.debug("remove: target=%s entries=%d matches=%d",
-                             target, len(entries), len(matches))
-
-                if not matches:
-                    logger.info("remove: no match (target=%s old_text=%r)", target, _preview(old_text))
-                    _append_audit({
-                        "action": "remove", "target": target, "result": "no_match",
-                        "old_text": _preview(old_text),
-                    })
-                    return {"success": False, "error": f"No entry matched '{old_text}'."}
-
-                if len(matches) > 1:
-                    # If all matches are identical (exact duplicates), remove the first one
-                    unique_texts = set(e for _, e in matches)
-                    if len(unique_texts) > 1:
-                        previews = [e[:80] + ("..." if len(e) > 80 else "") for _, e in matches]
-                        logger.info("remove: ambiguous match (%d entries) target=%s", len(matches), target)
-                        _append_audit({
-                            "action": "remove", "target": target, "result": "ambiguous",
-                            "match_count": len(matches),
-                        })
-                        return {
-                            "success": False,
-                            "error": f"Multiple entries matched '{old_text}'. Be more specific.",
-                            "matches": previews,
-                        }
-                    # All identical -- safe to remove just the first
-
-                idx = matches[0][0]
-                removed_preview = _preview(entries[idx])
-                entries.pop(idx)
-                self._set_entries(target, entries)
-                logger.debug("remove: persisting target=%s idx=%d", target, idx)
-                self.save_to_disk(target)
-        except TimeoutError as exc:
-            logger.error("remove: lock timeout (target=%s): %s", target, exc)
-            _append_audit({"action": "remove", "target": target, "result": "lock_timeout", "error": str(exc)})
-            return {"success": False, "error": f"Memory write timed out: {exc}"}
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("remove: unexpected error (target=%s)", target)
-            _append_audit({"action": "remove", "target": target, "result": "error", "error": str(exc)})
-            return {"success": False, "error": f"Memory write failed: {exc}"}
-
-        logger.info("remove: OK target=%s removed=%r", target, removed_preview)
-        _append_audit({
-            "action": "remove", "target": target, "result": "ok",
-            "old_text": _preview(old_text), "removed_preview": removed_preview,
-        })
-        return self._success_response(target, "Entry removed.")
-
-    def format_for_system_prompt(self, target: str) -> Optional[str]:
-        """
-        Return the frozen snapshot for system prompt injection.
-
-        This returns the state captured at load_from_disk() time, NOT the live
-        state. Mid-session writes do not affect this. This keeps the system
-        prompt stable across all turns, preserving the prefix cache.
-
-        Returns None if the snapshot is empty (no entries at load time).
-        """
-        block = self._system_prompt_snapshot.get(target, "")
-        return block if block else None
-
-    # -- Internal helpers --
-
-    def _success_response(self, target: str, message: str = None) -> Dict[str, Any]:
-        entries = self._entries_for(target)
-        current = self._char_count(target)
-        limit = self._char_limit(target)
-        pct = min(100, int((current / limit) * 100)) if limit > 0 else 0
-
-        resp = {
-            "success": True,
-            "target": target,
-            "entries": entries,
-            "usage": f"{pct}% — {current:,}/{limit:,} chars",
-            "entry_count": len(entries),
-        }
-        if message:
-            resp["message"] = message
-        return resp
+        self.memory_entries = self._read_file(self.memory_dir / "MEMORY.md")
+        self.user_entries = self._read_file(self.memory_dir / "USER.md")
 
     @staticmethod
-    def _read_file(path: Path) -> List[str]:
-        """Read a memory file and split into entries.
-
-        No file locking needed: _write_file uses atomic rename, so readers
-        always see either the previous complete file or the new complete file.
-        """
-        if not path.exists():
-            return []
+    def _read_file(path: Path) -> list[str]:
         try:
-            raw = path.read_text(encoding="utf-8")
-        except (OSError, IOError):
+            raw = path.read_bytes().decode("utf-8")
+        except FileNotFoundError:
             return []
-
-        if not raw.strip():
-            return []
-
-        return split_entries(raw)
-
-    @staticmethod
-    def _write_file(path: Path, entries: List[str]):
-        """Write entries to a memory file using atomic temp-file + rename.
-
-        Previous implementation used open("w") + flock, but "w" truncates the
-        file *before* the lock is acquired, creating a race window where
-        concurrent readers see an empty file. Atomic rename avoids this:
-        readers always see either the old complete file or the new one.
-        """
-        _ensure_logger()
-        content = join_entries(entries)
-        t0 = time.monotonic()
+        except (OSError, UnicodeError) as exc:
+            raise MemoryCatalogError("STORAGE_ERROR", f"Cannot read {path}: {exc}") from exc
         try:
-            logger.debug(
-                "write: atomic target=%s entries=%d chars=%d",
-                path,
-                len(entries),
-                len(content),
-            )
-            atomic_write_text(path, content, temp_prefix=".mem_")
-            logger.debug(
-                "write: atomic replace done target=%s (%.2fs total)",
-                path,
-                time.monotonic() - t0,
-            )
-        except (OSError, IOError) as e:
-            logger.error("write: FAILED target=%s after %.2fs: %s",
-                         path, time.monotonic() - t0, e)
-            raise RuntimeError(f"Failed to write memory file {path}: {e}")
+            return [entry.content for entry in parse_entries(raw)]
+        except ValueError as exc:
+            raise MemoryCatalogError("INVALID_FORMAT", f"{path}: {exc}") from exc

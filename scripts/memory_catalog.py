@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
@@ -17,13 +18,17 @@ from memory_format import (
     USER_CHAR_LIMIT,
     char_count,
     join_entries,
-    split_entries,
+    new_entry_id,
+    parse_entries,
+    render_entry,
+    unix_timestamp,
 )
+
+from memory_upgrade import upgrade_memory_files
 
 
 Target = Literal["memory", "user"]
 SummaryStatus = Literal["current", "unavailable"]
-StartupPolicy = Literal["always", "auto", "never"]
 RecallMode = Literal["relevant", "exact", "browse", "get"]
 
 DEFAULT_SUMMARY_CHAR_LIMIT = 800
@@ -32,10 +37,8 @@ DEFAULT_RECALL_LIMIT = 5
 MIN_RECALL_CHAR_LIMIT = 512
 MAX_RECALL_CHAR_LIMIT = 12000
 MIN_CONTENT_CHUNK_CHARS = 256
-ENTRY_SUMMARY_CHAR_LIMIT = 160
+ENTRY_SUMMARY_CHAR_LIMIT = 120
 RECEIPT_CONTENT_CHAR_LIMIT = 1200
-TAG_CHAR_LIMIT = 32
-SOURCE_CHAR_LIMIT = 256
 LOCK_TIMEOUT_SECONDS = 15.0
 LOCK_POLL_INTERVAL = 0.1
 
@@ -75,7 +78,7 @@ _INVISIBLE_CHARS = frozenset(
 
 
 class MemoryCatalogError(RuntimeError):
-    """Structured failure crossing the MemoryCatalog Interface."""
+    """Report a catalog failure to hooks and tool adapters."""
 
     def __init__(
         self,
@@ -100,12 +103,7 @@ class MemoryChange:
     content: str | None = None
     entry_id: str | None = None
     old_text: str | None = None
-    summary: str | None = None
-    tags: tuple[str, ...] | None = None
-    priority: int | None = None
-    startup: StartupPolicy | None = None
-    source: str | None = None
-    repair_id: bool = False
+    startup: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +111,7 @@ class SummarySnapshot:
     text: str
     status: SummaryStatus
     source_revision: str | None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,10 +134,9 @@ class MemoryEntry:
     target: Target
     content: str
     summary: str
-    tags: tuple[str, ...] = ()
-    priority: int = 50
-    startup: StartupPolicy = "auto"
-    source: str | None = None
+    startup: bool = True
+    raw: str = field(default="", repr=False, compare=False)
+    updated_at: int | None = None
 
 
 @dataclass(frozen=True)
@@ -190,28 +188,18 @@ def memory_entry_payload(
         return payload
     payload.update({
         "content": entry.content if content_limit is None else entry.content[:content_limit],
-        "tags": [tag[:TAG_CHAR_LIMIT] for tag in entry.tags],
-        "priority": entry.priority,
         "startup": entry.startup,
-        "source": entry.source[:SOURCE_CHAR_LIMIT] if entry.source else None,
     })
+    if entry.updated_at is not None:
+        payload["updated_at"] = entry.updated_at
     if content_limit is not None and len(entry.content) > content_limit:
         payload["content_truncated"] = True
-    if (
-        len(entry.summary) > ENTRY_SUMMARY_CHAR_LIMIT
-        or any(len(tag) > TAG_CHAR_LIMIT for tag in entry.tags)
-        or (entry.source and len(entry.source) > SOURCE_CHAR_LIMIT)
-    ):
-        payload["metadata_truncated"] = True
     return payload
 
 
 def _entry_threat(entry: MemoryEntry) -> str | None:
     """Apply the same limited heuristic to every model-visible text field."""
-    fields = (
-        ("entry_id", entry.entry_id), ("content", entry.content), ("summary", entry.summary),
-        ("source", entry.source or ""), *(("tags", tag) for tag in entry.tags),
-    )
+    fields = (("content", entry.content),)
     for field, text in fields:
         threat = scan_memory_content(text)
         if threat:
@@ -221,11 +209,8 @@ def _entry_threat(entry: MemoryEntry) -> str | None:
 
 def _quarantine_message(threat: str) -> str:
     """Name the field and repair path without echoing the quarantined text."""
-    return (
-        f"The entry is quarantined: suspicious {threat}. "
-        "Explicitly replace affected fields; source=\"\" or tags=[] clears them. "
-        "For a suspicious entry_id, replace with repair_id=true to generate a new ID."
-    )
+    return f"The entry is quarantined: suspicious {threat}. Replace its content or remove the entry."
+
 
 
 def _sha256_text(content: str) -> str:
@@ -274,7 +259,7 @@ def scan_memory_content(content: str) -> str | None:
 
 
 class MemoryCatalog:
-    """Deep Module for durable memory, recall, and the SessionStart brief."""
+    """Store durable memory and provide recall and the startup brief."""
 
     def __init__(
         self,
@@ -317,27 +302,67 @@ class MemoryCatalog:
         summary_path = self.memory_dir / "SUMMARY.md"
         state_path = self.memory_dir / ".summary-state.json"
         dirty_path = self.memory_dir / ".summary.dirty"
-        if dirty_path.exists() or not summary_path.is_file() or not state_path.is_file():
-            return SummarySnapshot("", "unavailable", None)
+        if dirty_path.exists():
+            return SummarySnapshot("", "unavailable", None, "Summary rebuild is pending.")
+        if not summary_path.is_file() or not state_path.is_file():
+            return SummarySnapshot("", "unavailable", None, "Summary files are missing.")
 
         try:
             raw = summary_path.read_text(encoding="utf-8")
             state = json.loads(state_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            return SummarySnapshot("", "unavailable", None)
+            fingerprint = self._source_fingerprint()
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            return SummarySnapshot("", "unavailable", None, f"Cannot validate summary: {exc}")
 
+        if not isinstance(state, dict):
+            return SummarySnapshot("", "unavailable", None, "Summary state must be a JSON object.")
+        if state.get("format_version") != 4:
+            return SummarySnapshot("", "unavailable", None, "Summary format changed.")
         if state.get("summary_sha256") != _sha256_text(raw):
-            return SummarySnapshot("", "unavailable", None)
-        if state.get("source_fingerprint") != self._source_fingerprint():
-            return SummarySnapshot("", "unavailable", None)
+            return SummarySnapshot("", "unavailable", None, "Summary content changed.")
+        if state.get("source_fingerprint") != fingerprint:
+            return SummarySnapshot("", "unavailable", None, "Memory files changed.")
 
         lines = raw.splitlines()
         if lines and lines[0].startswith("<!-- improve-summary:"):
             lines = lines[1:]
         text = "\n".join(lines).strip()
-        if len(text) > self.summary_char_limit or scan_memory_content(text):
-            return SummarySnapshot("", "unavailable", None)
+        if len(text) > self.summary_char_limit:
+            return SummarySnapshot("", "unavailable", None, "Summary exceeds the startup limit.")
+        if scan_memory_content(text):
+            return SummarySnapshot("", "unavailable", None, "Summary failed content checks.")
         return SummarySnapshot(text, "current", state.get("source_revision"))
+
+    def ensure_startup_snapshot(self) -> SummarySnapshot:
+        """Use a valid summary, or rebuild it under the shared memory lock."""
+        snapshot = self.startup_snapshot()
+        if snapshot.status == "current":
+            return snapshot
+
+        lock_path = self.memory_dir / ".memory.lock"
+        with file_lock(
+            lock_path, timeout=LOCK_TIMEOUT_SECONDS, poll_interval=LOCK_POLL_INTERVAL,
+            description=f"memory catalog lock {lock_path}",
+        ):
+            snapshot = self.startup_snapshot()
+            if snapshot.status == "current":
+                return snapshot
+            logging.getLogger(__name__).warning("Rebuilding memory summary: %s", snapshot.reason)
+            self._upgrade_legacy()
+            fingerprint = self._source_fingerprint()
+            records = self._reconcile_entries()
+            revision = self._revision_for(records)
+            if fingerprint != self._source_fingerprint():
+                raise MemoryCatalogError(
+                    "STORAGE_ERROR", "Memory files changed during summary rebuild.", retryable=True,
+                )
+            self._write_summary(revision, records, source_fingerprint=fingerprint)
+            snapshot = self.startup_snapshot()
+            if snapshot.status != "current":
+                raise MemoryCatalogError(
+                    "STORAGE_ERROR", f"Rebuilt summary is unavailable: {snapshot.reason}", retryable=True,
+                )
+            return snapshot
 
     def recall(
         self,
@@ -347,8 +372,6 @@ class MemoryCatalog:
         mode: RecallMode = "relevant",
         limit: int = DEFAULT_RECALL_LIMIT,
         max_chars: int | None = None,
-        tags_any: tuple[str, ...] = (),
-        min_priority: int | None = None,
         entry_id: str | None = None,
         offset: int = 0,
         content_offset: int = 0,
@@ -374,12 +397,10 @@ class MemoryCatalog:
             )
         if any(type(value) is not int or value < 0 for value in (offset, content_offset)):
             raise MemoryCatalogError("INVALID_REQUEST", "Offsets must be non-negative integers.")
-        if min_priority is not None and (type(min_priority) is not int or not 0 <= min_priority <= 100):
-            raise MemoryCatalogError("INVALID_REQUEST", "min_priority must be between 0 and 100.")
         if mode == "get":
             if not isinstance(entry_id, str) or not entry_id:
                 raise MemoryCatalogError("INVALID_REQUEST", "entry_id is required for mode=get.")
-            if query or tags_any or min_priority is not None or offset:
+            if query or offset:
                 raise MemoryCatalogError("INVALID_REQUEST", "mode=get does not accept query, filters or offset.")
         elif entry_id is not None or content_offset:
             raise MemoryCatalogError("INVALID_REQUEST", "entry_id and content_offset require mode=get.")
@@ -399,15 +420,21 @@ class MemoryCatalog:
             lock_path, timeout=LOCK_TIMEOUT_SECONDS, poll_interval=LOCK_POLL_INTERVAL,
             description=f"memory catalog lock {lock_path}",
         ):
+            self._upgrade_legacy()
+            fingerprint = self._source_fingerprint()
             records = self._reconcile_entries()
             revision = self._revision_for(records)
+            if fingerprint != self._source_fingerprint():
+                raise MemoryCatalogError("REVISION_CONFLICT", "Memory files changed during recall.", retryable=True)
             if expected_revision is not None and expected_revision != revision:
                 raise MemoryCatalogError(
                     "REVISION_CONFLICT", "Memory changed; restart the lookup from its first page.",
                     retryable=True,
                 )
-            self._write_metadata(records)
-            self._write_summary(revision, records)
+            if self.startup_snapshot().status != "current":
+                self._write_summary(revision, records, source_fingerprint=fingerprint)
+                if self.startup_snapshot().status != "current":
+                    raise MemoryCatalogError("STORAGE_ERROR", "Memory files changed during summary rebuild.", retryable=True)
 
         scoped = [entry for entry in records if entry.target in targets]
         quarantined_count = sum(bool(_entry_threat(entry)) for entry in scoped)
@@ -423,20 +450,15 @@ class MemoryCatalog:
             )
 
         query_terms = self._search_terms(query)
-        requested_tags = {tag.casefold() for tag in tags_any}
-        ranked: list[tuple[int, int, int, MemoryEntry]] = []
+        ranked: list[tuple[int, int, MemoryEntry]] = []
         for order, entry in enumerate(scoped):
             if _entry_threat(entry):
-                continue
-            if requested_tags and not requested_tags.intersection(tag.casefold() for tag in entry.tags):
-                continue
-            if min_priority is not None and entry.priority < min_priority:
                 continue
             score = self._relevance_score(entry, query, query_terms, mode)
             if mode != "browse" and score <= 0:
                 continue
-            ranked.append((-score, -entry.priority, order, entry))
-        ranked.sort(key=lambda item: (item[0], item[1], item[2], item[3].entry_id))
+            ranked.append((-score, order, entry))
+        ranked.sort(key=lambda item: (item[0], item[1]))
         if offset > len(ranked):
             raise MemoryCatalogError("INVALID_REQUEST", "offset exceeds the matching entry count.")
 
@@ -451,7 +473,7 @@ class MemoryCatalog:
                 next_offset=end if end < len(ranked) else None,
             )
 
-        for _, _, _, entry in ranked[offset:]:
+        for _, _, entry in ranked[offset:]:
             if len(selected) >= limit:
                 break
             view = memory_entry_payload(entry, summary_only=mode == "browse")
@@ -539,6 +561,8 @@ class MemoryCatalog:
             poll_interval=LOCK_POLL_INTERVAL,
             description=f"memory catalog lock {lock_path}",
         ):
+            self._upgrade_legacy()
+            fingerprint = self._source_fingerprint()
             records = self._reconcile_entries()
             current_revision = self._revision_for(records)
             if expected_revision is not None and expected_revision != current_revision:
@@ -548,126 +572,72 @@ class MemoryCatalog:
                     retryable=True,
                 )
 
-            target_entries = self._read_entries(change.target)
             selected = self._select_entry(records, change)
-            message: str
-            changed_id: str | None
-
             if change.action == "add":
-                content = (change.content or "").strip()
-                duplicate = next(
-                    (
-                        entry
-                        for entry in records
-                        if entry.target == change.target and entry.content == content
-                    ),
-                    None,
-                )
-                if duplicate is not None:
-                    selected = duplicate
-                    message = "Entry already exists."
-                else:
-                    candidate = [*target_entries, content]
-                    self._check_storage_limit(change.target, candidate)
-                    target_entries = candidate
+                content = change.content.strip()
+                selected = next((entry for entry in records
+                                 if entry.target == change.target and entry.content == content), None)
+                if selected is None:
                     selected = self._entry_from_change(change, content)
+                    while any(entry.entry_id == selected.entry_id for entry in records):
+                        selected = self._entry_from_change(change, content)
                     records.append(selected)
                     message = "Entry added."
-                changed_id = selected.entry_id
+                else:
+                    message = "Entry already exists."
             elif change.action == "replace":
                 if selected is None:
                     raise MemoryCatalogError("NOT_FOUND", "No entry matched the selector.")
-                content = (change.content or "").strip()
-                index = target_entries.index(selected.content)
-                candidate = list(target_entries)
-                candidate[index] = content
-                self._check_storage_limit(change.target, candidate)
-                target_entries = candidate
                 updated = replace(
-                    selected,
-                    content=content,
-                    summary=(
-                        self._validated_summary(change.summary)
-                        if change.summary is not None
-                        else self._summary_cue(content)
-                    ),
-                    tags=(
-                        self._normalized_tags(change.tags)
-                        if change.tags is not None
-                        else selected.tags
-                    ),
-                    priority=(
-                        change.priority
-                        if change.priority is not None
-                        else selected.priority
-                    ),
-                    startup=(
-                        change.startup
-                        if change.startup is not None
-                        else selected.startup
-                    ),
-                    source=(
-                        (change.source or "").strip() or None
-                        if change.source is not None
-                        else selected.source
-                    ),
+                    selected, content=change.content.strip(),
+                    summary=self._summary_cue(change.content.strip()),
+                    startup=change.startup if change.startup is not None else selected.startup,
+                    updated_at=unix_timestamp(),
+                    raw="",
                 )
-                if change.repair_id:
-                    if not scan_memory_content(selected.entry_id):
-                        raise MemoryCatalogError(
-                            "INVALID_REQUEST", "repair_id only repairs a suspicious entry_id.",
-                        )
-                    used_ids = {entry.entry_id for entry in records}
-                    new_id = _derived_entry_id(change.target, content)
-                    attempt = 0
-                    while new_id in used_ids:
-                        attempt += 1
-                        new_id = _derived_entry_id(change.target, f"{content}\0repair:{attempt}")
-                    updated = replace(updated, entry_id=new_id)
                 records[records.index(selected)] = updated
                 selected = updated
-                changed_id = updated.entry_id
-                message = (
-                    "Entry replaced; quarantined entry_id regenerated."
-                    if change.repair_id else "Entry replaced."
-                )
+                message = "Entry replaced."
             else:
                 if selected is None:
                     raise MemoryCatalogError("NOT_FOUND", "No entry matched the selector.")
-                target_entries.remove(selected.content)
                 records.remove(selected)
-                changed_id = selected.entry_id
                 message = "Entry removed."
-
-            if change.action != "remove":
-                threat = _entry_threat(selected)
-                if threat:
-                    raise MemoryCatalogError("UNSAFE_CONTENT", _quarantine_message(threat))
-            summary_text = self._build_summary(records, strict_always=True)
-            dirty_path = self.memory_dir / ".summary.dirty"
+            changed_id = selected.entry_id
+            target_entries = [entry.content for entry in records if entry.target == change.target]
+            if change.action != "remove" and message != "Entry already exists.":
+                self._check_storage_limit(change.target, target_entries)
+            summary_text = self._build_summary(records)
+            if fingerprint != self._source_fingerprint():
+                raise MemoryCatalogError("REVISION_CONFLICT", "Memory files changed during the write.", retryable=True)
             content_committed = False
             try:
-                atomic_write_text(dirty_path, current_revision, temp_prefix=".summary_dirty_")
-                atomic_write_text(
-                    self._path_for(change.target),
-                    join_entries(target_entries),
-                    temp_prefix=".mem_",
-                )
+                atomic_write_text(self.memory_dir / ".summary.dirty", current_revision, temp_prefix=".summary_dirty_")
+                blocks = [
+                    entry.raw if entry.raw and entry is not selected else render_entry(
+                        entry.content, entry.entry_id, entry.startup, updated_at=entry.updated_at,
+                    ) for entry in records if entry.target == change.target
+                ]
+                atomic_write_text(self._path_for(change.target), join_entries(blocks), temp_prefix=".mem_")
                 content_committed = True
-                self._write_metadata(records)
+                persisted = self._source_fingerprint()
+                other_name = "USER.md" if change.target == "memory" else "MEMORY.md"
+                if persisted[other_name] != fingerprint[other_name] or self._read_source(change.target) != join_entries(blocks):
+                    raise MemoryCatalogError("REVISION_CONFLICT", "Memory files changed during persistence.", retryable=True, committed=True)
                 revision = self._revision_for(records)
                 self._write_summary(
-                    revision,
-                    records,
-                    summary_text=summary_text,
-                    dirty_already=True,
+                    revision, records, summary_text=summary_text, dirty_already=True,
+                    source_fingerprint=persisted,
                 )
+                if self.startup_snapshot().status != "current":
+                    raise MemoryCatalogError("STORAGE_ERROR", "Saved summary is unavailable.", retryable=True, committed=True)
+            except MemoryCatalogError as exc:
+                exc.committed = content_committed or exc.committed
+                raise
             except OSError as exc:
                 raise MemoryCatalogError(
-                    "STORAGE_ERROR",
-                    f"Memory persistence failed: {exc}",
-                    retryable=True,
-                    committed=content_committed,
+                    "STORAGE_ERROR", f"Memory persistence failed: {exc}",
+                    retryable=True, committed=content_committed,
                 ) from exc
 
         return ApplyResult(
@@ -688,12 +658,14 @@ class MemoryCatalog:
             raise MemoryCatalogError("INVALID_REQUEST", f"Invalid action: {change.action}")
         if change.target not in ("memory", "user"):
             raise MemoryCatalogError("INVALID_REQUEST", f"Invalid target: {change.target}")
-        if type(change.repair_id) is not bool or (change.repair_id and change.action != "replace"):
-            raise MemoryCatalogError("INVALID_REQUEST", "repair_id must be a boolean and is only valid for replace.")
         if change.action in ("add", "replace"):
-            content = (change.content or "").strip()
+            if not isinstance(change.content, str):
+                raise MemoryCatalogError("INVALID_REQUEST", "content must be a string.")
+            content = change.content.strip()
             if not content:
                 raise MemoryCatalogError("INVALID_REQUEST", "Content cannot be empty.")
+            if "§" in content.splitlines() or "<!-- improve-entry" in content:
+                raise MemoryCatalogError("INVALID_REQUEST", "Pass one entry body without entry markers or delimiters.")
             threat = scan_memory_content(content)
             if threat:
                 readable_threat = threat.replace("invisible_unicode", "invisible unicode")
@@ -708,42 +680,16 @@ class MemoryCatalog:
                 "INVALID_REQUEST",
                 "entry_id or old_text is required.",
             )
-        if change.priority is not None and not 0 <= change.priority <= 100:
-            raise MemoryCatalogError("INVALID_REQUEST", "priority must be between 0 and 100.")
-        if change.startup is not None and change.startup not in ("always", "auto", "never"):
-            raise MemoryCatalogError("INVALID_REQUEST", f"Invalid startup policy: {change.startup}")
-        if change.summary is not None:
-            self._validated_summary(change.summary)
-        if change.tags is not None:
-            if len(change.tags) > 12 or any(
-                len(" ".join(str(tag).split()).casefold()) > TAG_CHAR_LIMIT for tag in change.tags
-            ):
-                raise MemoryCatalogError(
-                    "INVALID_REQUEST", f"Use at most 12 tags of at most {TAG_CHAR_LIMIT} characters each.",
-                )
-        if change.source is not None and len(change.source.strip()) > SOURCE_CHAR_LIMIT:
-            raise MemoryCatalogError(
-                "INVALID_REQUEST", f"source cannot exceed {SOURCE_CHAR_LIMIT} characters.",
-            )
-        for value in (change.source or "", *(change.tags or ())):
-            threat = scan_memory_content(str(value))
-            if threat:
-                raise MemoryCatalogError("UNSAFE_CONTENT", f"Unsafe memory metadata: {threat}")
+        if change.startup is not None and type(change.startup) is not bool:
+            raise MemoryCatalogError("INVALID_REQUEST", "startup must be a boolean.")
 
     def _entry_from_change(self, change: MemoryChange, content: str) -> MemoryEntry:
+        timestamp = unix_timestamp()
         return MemoryEntry(
-            entry_id=_derived_entry_id(change.target, content),
-            target=change.target,
-            content=content,
-            summary=(
-                self._validated_summary(change.summary)
-                if change.summary is not None
-                else self._summary_cue(content)
-            ),
-            tags=self._normalized_tags(change.tags or ()),
-            priority=change.priority if change.priority is not None else 50,
-            startup=change.startup if change.startup is not None else "auto",
-            source=(change.source or "").strip() or None,
+            entry_id=new_entry_id(change.target, timestamp),
+            target=change.target, content=content, summary=self._summary_cue(content),
+            startup=change.startup if change.startup is not None else True,
+            updated_at=timestamp,
         )
 
     def _select_entry(
@@ -781,139 +727,63 @@ class MemoryCatalog:
     def _path_for(self, target: Target) -> Path:
         return self.memory_dir / ("USER.md" if target == "user" else "MEMORY.md")
 
-    def _read_entries(self, target: Target) -> list[str]:
+    def _read_source(self, target: Target) -> str:
         path = self._path_for(target)
-        if not path.is_file():
-            return []
         try:
-            return list(dict.fromkeys(split_entries(path.read_text(encoding="utf-8"))))
-        except (OSError, UnicodeError):
-            return []
+            return path.read_bytes().decode("utf-8")
+        except FileNotFoundError:
+            return ""
+        except (OSError, UnicodeError) as exc:
+            raise MemoryCatalogError("STORAGE_ERROR", f"Cannot read {path}: {exc}") from exc
 
-    def _read_metadata(self) -> list[dict[str, object]]:
-        path = self.memory_dir / "METADATA.jsonl"
-        if not path.is_file():
-            return []
-        records: list[dict[str, object]] = []
+    def _read_entries(self, target: Target) -> list[str]:
+        return [entry.content for entry in parse_entries(self._read_source(target))]
+
+    def _upgrade_legacy(self) -> None:
+        has_metadata = (self.memory_dir / "METADATA.jsonl").exists()
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeError):
-            return []
-        for line in lines:
-            try:
-                record = json.loads(line)
-            except (TypeError, json.JSONDecodeError):
-                continue
-            if isinstance(record, dict):
-                records.append(record)
-        return records
+            upgrade_memory_files(self.memory_dir)
+        except (OSError, UnicodeError, ValueError) as exc:
+            code = "MIGRATION_ERROR" if has_metadata else (
+                "INVALID_FORMAT" if isinstance(exc, ValueError) else "STORAGE_ERROR"
+            )
+            raise MemoryCatalogError(code, f"Cannot migrate memory in {self.memory_dir}: {exc}", retryable=isinstance(exc, OSError)) from exc
 
     def _reconcile_entries(self) -> list[MemoryEntry]:
-        metadata = self._read_metadata()
-        by_key: dict[tuple[str, str], list[dict[str, object]]] = {}
-        for record in metadata:
-            target = record.get("target")
-            content_hash = record.get("content_hash")
-            if target in ("memory", "user") and isinstance(content_hash, str):
-                by_key.setdefault((target, content_hash), []).append(record)
-
-        reconciled: list[MemoryEntry] = []
+        records: list[MemoryEntry] = []
         used_ids: set[str] = set()
+        parsed = {}
+        reserved_ids: set[str] = set()
         for target in ("user", "memory"):
-            for content in self._read_entries(target):
-                candidates = by_key.get((target, _content_hash(content)), [])
-                record = next(
-                    (
-                        candidate
-                        for candidate in candidates
-                        if isinstance(candidate.get("id"), str)
-                        and candidate["id"] not in used_ids
-                    ),
-                    None,
-                )
-                entry_id = (
-                    str(record["id"])
-                    if record is not None
-                    else _derived_entry_id(target, content)
-                )
-                if entry_id in used_ids:
-                    entry_id = _derived_entry_id(target, content + f"\0{len(used_ids)}")
+            try:
+                entries = parse_entries(self._read_source(target))
+            except ValueError as exc:
+                raise MemoryCatalogError("INVALID_FORMAT", f"{self._path_for(target)}: {exc}") from exc
+            parsed[target] = entries
+            for index, entry in enumerate(entries, 1):
+                if entry.entry_id:
+                    if entry.entry_id in reserved_ids:
+                        raise MemoryCatalogError("INVALID_FORMAT", f"{self._path_for(target)} entry {index}: duplicate id {entry.entry_id}.")
+                    reserved_ids.add(entry.entry_id)
+        for target, entries in parsed.items():
+            for entry in entries:
+                entry_id = entry.entry_id or _derived_entry_id(target, entry.content)
+                suffix = 1
+                base_id = entry_id
+                while entry_id in used_ids or (entry.entry_id is None and entry_id in reserved_ids):
+                    entry_id = f"{base_id}-{suffix}"
+                    suffix += 1
                 used_ids.add(entry_id)
-                summary = (
-                    str(record.get("summary", "")).strip()
-                    if record is not None
-                    else ""
-                ) or self._summary_cue(content)
-                tags_value = record.get("tags", []) if record is not None else []
-                tags = self._normalized_tags(
-                    tuple(str(tag) for tag in tags_value)
-                    if isinstance(tags_value, list)
-                    else ()
-                )
-                priority_value = record.get("priority", 50) if record is not None else 50
-                priority = priority_value if isinstance(priority_value, int) else 50
-                priority = min(100, max(0, priority))
-                startup_value = record.get("startup", "auto") if record is not None else "auto"
-                startup: StartupPolicy = (
-                    startup_value
-                    if startup_value in ("always", "auto", "never")
-                    else "auto"
-                )
-                source_value = record.get("source") if record is not None else None
-                source = str(source_value).strip() if source_value else None
-                reconciled.append(
-                    MemoryEntry(
-                        entry_id=entry_id,
-                        target=target,
-                        content=content,
-                        summary=summary,
-                        tags=tags,
-                        priority=priority,
-                        startup=startup,
-                        source=source,
-                    )
-                )
-        return reconciled
-
-    @staticmethod
-    def _metadata_record(entry: MemoryEntry) -> dict[str, object]:
-        return {
-            "id": entry.entry_id,
-            "target": entry.target,
-            "content_hash": _content_hash(entry.content),
-            "summary": entry.summary,
-            "tags": list(entry.tags),
-            "priority": entry.priority,
-            "startup": entry.startup,
-            "source": entry.source,
-        }
-
-    def _serialize_metadata(self, records: list[MemoryEntry]) -> str:
-        return "\n".join(
-            json.dumps(
-                self._metadata_record(entry),
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            for entry in records
-        )
-
-    def _write_metadata(self, records: list[MemoryEntry]) -> None:
-        serialized = self._serialize_metadata(records)
-        atomic_write_text(
-            self.memory_dir / "METADATA.jsonl",
-            serialized + ("\n" if serialized else ""),
-            temp_prefix=".metadata_",
-        )
+                records.append(MemoryEntry(
+                    entry_id, target, entry.content, self._summary_cue(entry.content), entry.startup, entry.raw, entry.updated_at,
+                ))
+        return records
 
     def _revision_for(self, records: list[MemoryEntry]) -> str:
-        memory = join_entries(self._read_entries("memory"))
-        user = join_entries(self._read_entries("user"))
-        metadata = self._serialize_metadata(records)
-        return _sha256_text(
-            f"memory\0{memory}\0user\0{user}\0metadata\0{metadata}"
-        )
+        return _sha256_text(json.dumps(
+            [[entry.target, entry.entry_id, entry.content, entry.startup, entry.updated_at] for entry in sorted(records, key=lambda item: 0 if item.target == "user" else 1)],
+            ensure_ascii=False, separators=(",", ":"),
+        ))
 
     def _source_fingerprint(self) -> dict[str, list[int] | None]:
         result: dict[str, list[int] | None] = {}
@@ -921,8 +791,9 @@ class MemoryCatalog:
             path = self.memory_dir / name
             try:
                 stat = path.stat()
-            except OSError:
-                result[name] = None
+            except FileNotFoundError:
+                if name != "METADATA.jsonl":
+                    result[name] = None
             else:
                 result[name] = [stat.st_size, stat.st_mtime_ns]
         return result
@@ -938,32 +809,9 @@ class MemoryCatalog:
             )
 
     @staticmethod
-    def _summary_cue(content: str, limit: int = 120) -> str:
+    def _summary_cue(content: str, limit: int = ENTRY_SUMMARY_CHAR_LIMIT) -> str:
         first_line = " ".join(content.splitlines()[0].split())
         return first_line if len(first_line) <= limit else first_line[: limit - 1] + "…"
-
-    @staticmethod
-    def _validated_summary(summary: str) -> str:
-        normalized = " ".join(summary.split())
-        if not normalized:
-            raise MemoryCatalogError("INVALID_REQUEST", "summary cannot be empty.")
-        if len(normalized) > ENTRY_SUMMARY_CHAR_LIMIT:
-            raise MemoryCatalogError(
-                "INVALID_REQUEST", f"summary cannot exceed {ENTRY_SUMMARY_CHAR_LIMIT} characters.",
-            )
-        threat = scan_memory_content(normalized)
-        if threat:
-            raise MemoryCatalogError("UNSAFE_CONTENT", f"Unsafe memory summary: {threat}")
-        return normalized
-
-    @staticmethod
-    def _normalized_tags(tags: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = []
-        for tag in tags:
-            value = " ".join(str(tag).split()).casefold()
-            if value and value not in normalized:
-                normalized.append(value)
-        return tuple(normalized[:12])
 
     @staticmethod
     def _search_terms(text: str) -> set[str]:
@@ -987,7 +835,7 @@ class MemoryCatalog:
     ) -> int:
         if mode == "browse":
             return 1
-        haystack = " ".join((entry.summary, entry.content, *entry.tags)).casefold()
+        haystack = entry.content.casefold()
         normalized_query = " ".join(query.casefold().split())
         if mode == "exact":
             return 100 if normalized_query in " ".join(haystack.split()) else 0
@@ -998,25 +846,16 @@ class MemoryCatalog:
     def _build_summary(
         self,
         records: list[MemoryEntry],
-        *,
-        strict_always: bool = False,
     ) -> str:
         safe_records = [
             entry
             for entry in records
-            if entry.startup != "never"
+            if entry.startup
             and not _entry_threat(entry)
         ]
         if not safe_records:
             return ""
-        safe_records.sort(
-            key=lambda entry: (
-                0 if entry.startup == "always" else 1,
-                0 if entry.target == "user" else 1,
-                -entry.priority,
-                entry.entry_id,
-            )
-        )
+        safe_records.sort(key=lambda entry: 0 if entry.target == "user" else 1)
 
         header = "MEMORY BRIEF"
         footer = "If these cues matter to the task, use memory_recall for details."
@@ -1032,11 +871,6 @@ class MemoryCatalog:
             )
             candidate = "\n".join([*lines, cue]) + suffix + "\n" + footer
             if len(candidate) > self.summary_char_limit:
-                if strict_always and entry.startup == "always":
-                    raise MemoryCatalogError(
-                        "SUMMARY_LIMIT_EXCEEDED",
-                        "startup=always entries exceed the SessionStart summary budget.",
-                    )
                 omitted = len(safe_records) - index
                 break
             lines.append(cue)
@@ -1056,6 +890,7 @@ class MemoryCatalog:
         *,
         summary_text: str | None = None,
         dirty_already: bool = False,
+        source_fingerprint: dict[str, list[int] | None] | None = None,
     ) -> None:
         dirty_path = self.memory_dir / ".summary.dirty"
         if not dirty_already:
@@ -1063,7 +898,7 @@ class MemoryCatalog:
         if summary_text is None:
             summary_text = self._build_summary(records)
         serialized = (
-            f"<!-- improve-summary:v2 source-revision={source_revision} -->\n"
+            f"<!-- improve-summary:v4 source-revision={source_revision} -->\n"
             f"{summary_text}\n"
         )
         atomic_write_text(
@@ -1072,8 +907,11 @@ class MemoryCatalog:
             temp_prefix=".summary_",
         )
         state = {
+            "format_version": 4,
             "source_revision": source_revision,
-            "source_fingerprint": self._source_fingerprint(),
+            "source_fingerprint": (
+                source_fingerprint if source_fingerprint is not None else self._source_fingerprint()
+            ),
             "summary_sha256": _sha256_text(serialized),
         }
         atomic_write_text(

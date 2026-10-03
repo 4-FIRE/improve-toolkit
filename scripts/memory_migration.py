@@ -11,6 +11,7 @@ from memory_format import (
     deduplicate_entries,
     join_entries,
     split_entries,
+    parse_entries,
 )
 from runtime_paths import (
     get_data_home,
@@ -68,8 +69,9 @@ def _prune_synchronized_legacy(path: Path, synchronized: set[str]) -> None:
 
     try:
         with _file_lock(path):
-            legacy_entries = _read_entries(path)
-            remaining = [entry for entry in legacy_entries if entry not in synchronized]
+            blocks = parse_entries(path.read_text(encoding="utf-8"))
+            legacy_entries = [entry.raw for entry in blocks]
+            remaining = [entry.raw for entry in blocks if entry.content not in synchronized]
 
             if not legacy_entries:
                 path.unlink(missing_ok=True)
@@ -79,7 +81,7 @@ def _prune_synchronized_legacy(path: Path, synchronized: set[str]) -> None:
                 _write_entries(path, remaining)
             else:
                 path.unlink(missing_ok=True)
-    except (OSError, UnicodeError) as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         _warn_retained(path, exc)
 
 
@@ -125,8 +127,8 @@ def prepare_memories_dir(project_dir: Path | str | None = None) -> Path:
                 _write_entries(destination, deduplicate_entries(entries))
 
             try:
-                synchronized = set(_read_entries(destination))
-            except (OSError, UnicodeError) as exc:
+                synchronized = {entry.content for entry in parse_entries(destination.read_text(encoding="utf-8"))}
+            except (OSError, UnicodeError, ValueError) as exc:
                 _warn_retained(destination, f"shared file could not be verified: {exc}")
                 continue
 

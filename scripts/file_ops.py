@@ -115,7 +115,8 @@ def atomic_write_text(
         suffix=temp_suffix,
     )
     try:
-        with os.fdopen(fd, "w", encoding=encoding) as handle:
+        # Preserve existing CRLF blocks and avoid platform-specific translation.
+        with os.fdopen(fd, "w", encoding=encoding, newline="") as handle:
             handle.write(content)
             handle.flush()
             if fsync:

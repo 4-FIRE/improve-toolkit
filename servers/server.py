@@ -106,7 +106,6 @@ def get_memory_store(project_dir: Path) -> MemoryStore:
     store = memory_stores.get(memory_dir)
     if store is None:
         store = MemoryStore(data_home=data_home, memory_dir=memory_dir)
-        store.load_from_disk()
         memory_stores[memory_dir] = store
     return store
 
@@ -130,6 +129,15 @@ async def list_tools():
 @app.call_tool()
 async def call_tool(name: str, arguments: dict):
     if name in ("memory", "memory_recall"):
+        schema = MEMORY_SCHEMA if name == "memory" else MEMORY_RECALL_SCHEMA
+        unknown = set(arguments) - set(schema["parameters"]["properties"])
+        if unknown:
+            error = json.dumps({
+                "success": False, "code": "INVALID_REQUEST",
+                "error": "Unsupported fields: " + ", ".join(sorted(unknown)),
+                "retryable": False, "committed": False,
+            })
+            return [TextContent(type="text", text=error)]
         try:
             project_dir = resolve_project_dir(arguments)
             store = get_memory_store(project_dir)
@@ -151,12 +159,7 @@ async def call_tool(name: str, arguments: dict):
             old_text=arguments.get("old_text"),
             entry_id=arguments.get("entry_id"),
             expected_revision=arguments.get("expected_revision"),
-            summary=arguments.get("summary"),
-            tags=arguments.get("tags"),
-            priority=arguments.get("priority"),
             startup=arguments.get("startup"),
-            source=arguments.get("source"),
-            repair_id=arguments.get("repair_id", False),
             store=store,
         )
         return [TextContent(type="text", text=result)]
@@ -167,8 +170,6 @@ async def call_tool(name: str, arguments: dict):
             target=arguments.get("target", "all"),
             limit=arguments.get("limit", 5),
             max_chars=arguments.get("max_chars"),
-            tags_any=arguments.get("tags_any"),
-            min_priority=arguments.get("min_priority"),
             mode=arguments.get("mode", "relevant"),
             entry_id=arguments.get("entry_id"),
             offset=arguments.get("offset", 0),

@@ -42,11 +42,19 @@ def main():
         for name in (
             "MEMORY.md",
             "USER.md",
+            "METADATA.jsonl",
             "SUMMARY.md",
             ".summary.dirty",
             ".summary-state.json",
         )
-    ) or any(
+    )
+    if snapshot.status != "current" and has_memory_state:
+        try:
+            snapshot = catalog.ensure_startup_snapshot()
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+
+    has_memory_state = has_memory_state or any(
         (legacy_dir / name).is_file()
         for legacy_dir in get_legacy_memories_dirs()
         for name in ("MEMORY.md", "USER.md")

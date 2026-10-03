@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -39,7 +39,7 @@ test("pi shares memory, isolates projects, and refreshes startup context", async
     assert.equal(await pi.emit("before_agent_start", initial), undefined);
     assert.equal(initial.systemPromptOptions.sections.existing, "keep");
     const added = await pi.call("memory", {
-      action: "add", target: "memory", content: "Project uses cedar fixtures.", summary: "Cedar fixtures", startup: "always",
+      action: "add", target: "memory", content: "Project uses cedar fixtures.", startup: true,
     });
     assert.equal(added.success, true);
     const recalled = await pi.call("memory_recall", { query: "cedar" });
@@ -53,7 +53,7 @@ test("pi shares memory, isolates projects, and refreshes startup context", async
     await pi.emit("session_compact");
     const refreshed = { systemPrompt: "Base prompt", systemPromptOptions: { sections: {} } };
     await pi.emit("before_agent_start", refreshed);
-    assert.match(refreshed.systemPromptOptions.sections.improve_toolkit, /Cedar fixtures/);
+    assert.match(refreshed.systemPromptOptions.sections.improve_toolkit, /cedar fixtures/);
     await assert.rejects(pi.call("memory_recall", { query: "cedar" }, project, AbortSignal.abort()));
     await pi.emit("session_shutdown");
     await pi.emit("session_shutdown");
@@ -62,7 +62,7 @@ test("pi shares memory, isolates projects, and refreshes startup context", async
     assert.deepEqual(pi.notices, []);
     const resumed = { systemPrompt: "Base", systemPromptOptions: { sections: {} } };
     await pi.emit("before_agent_start", resumed);
-    assert.match(resumed.systemPromptOptions.sections.improve_toolkit, /Cedar fixtures/);
+    assert.match(resumed.systemPromptOptions.sections.improve_toolkit, /cedar fixtures/);
     for (const event of [initial, refreshed, resumed]) {
       const context = event.systemPromptOptions.sections.improve_toolkit;
       assert.deepEqual(context.match(/^## .+$/gm), ["## Memory guidance", "## Response and writing guidance"]);
@@ -72,6 +72,21 @@ test("pi shares memory, isolates projects, and refreshes startup context", async
       assert.ok(writingSection.includes("ASD-STE100"));
     }
     assert.equal((await pi.call("memory_recall", { query: "cedar" })).entries.length, 1);
+    const path = join(project, ".improve-toolkit/memories/MEMORY.md");
+    await writeFile(path, (await readFile(path, "utf8")).replace("cedar", "birch"));
+    const edited = await pi.call("memory_recall", { mode: "get", entry_id: added.entry_id });
+    assert.equal(edited.entries[0].content, "Project uses birch fixtures.");
+    const updated = await pi.call("memory", {
+      action: "replace", target: "memory", entry_id: added.entry_id,
+      content: "Project uses birch fixtures.", startup: false, expected_revision: edited.revision,
+    });
+    assert.equal(updated.entry_id, added.entry_id);
+    assert.equal(updated.entry.startup, false);
+    await pi.emit("session_compact");
+    const hidden = { systemPrompt: "Base", systemPromptOptions: { sections: {} } };
+    await pi.emit("before_agent_start", hidden);
+    assert.ok(!hidden.systemPromptOptions.sections.improve_toolkit.includes("birch fixtures"));
+    assert.equal((await pi.call("memory_recall", { query: "birch" })).entries.length, 1);
   } finally {
     await pi.emit("session_shutdown");
     await rm(project, { recursive: true, force: true });

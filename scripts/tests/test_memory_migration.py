@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from memory_format import ENTRY_DELIMITER
+from memory_format import ENTRY_DELIMITER, render_entry
 from memory_migration import prepare_memories_dir
 
 
@@ -150,7 +150,21 @@ def test_memory_override_does_not_import_project_defaults():
         assert not (override / "MEMORY.md").exists()
 
 
+def test_marked_shared_entries_allow_verified_legacy_cleanup():
+    with tempfile.TemporaryDirectory(prefix="memory_marked_cleanup_") as workdir:
+        project = Path(workdir)
+        shared = project / ".improve-toolkit/memories/MEMORY.md"
+        legacy = project / ".claude/memories/MEMORY.md"
+        _write(shared, [render_entry("Synchronized fact", "m:keep", False)])
+        _write(legacy, ["Synchronized fact", "Unresolved fact"])
+        with patch.dict(os.environ, {"IMPROVE_PROJECT_DIR": workdir}, clear=True):
+            prepare_memories_dir()
+        assert _read(legacy) == ["Unresolved fact"]
+        assert _read(shared) == [render_entry("Synchronized fact", "m:keep", False)]
+
+
 ALL_TESTS = [
+    test_marked_shared_entries_allow_verified_legacy_cleanup,
     test_merges_both_legacy_hosts,
     test_existing_shared_file_is_authoritative,
     test_empty_legacy_file_establishes_shared_authority,

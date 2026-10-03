@@ -21,6 +21,7 @@ RUNTIME_GITIGNORE_TRACKED = (
     "/memories/.mem_*.tmp",
     "/memories/.metadata_*.tmp",
     "/memories/.migration_*.tmp",
+    "/memories/.migration-backup.json",
     "/memories/.summary-state.json",
     "/memories/.summary.dirty",
     "/memories/.summary_*.tmp",
