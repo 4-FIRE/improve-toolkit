@@ -18,7 +18,7 @@ try {
 
 for (const name of ["IMPROVE_DATA_DIR", "IMPROVE_MEMORY_DIR", "IMPROVE_PROJECT_DIR"]) delete process.env[name];
 
-test("installed pi loads the package, seven skills, and callable memory tools", {
+test("installed pi loads the package, four skills, and callable memory tools", {
   skip: !existsSync(sdkPath) && "pi npm package not installed globally",
 }, async () => {
   const { DefaultResourceLoader, SettingsManager, SessionManager, createAgentSession } = await import(pathToFileURL(sdkPath).href);
@@ -35,8 +35,7 @@ test("installed pi loads the package, seven skills, and callable memory tools", 
     // Newer pi also discovers user skills; check this package without depending on the user profile.
     const packageSkills = resourceLoader.getSkills().skills.filter(s => s.filePath.startsWith(join(root, "skills") + sep));
     assert.deepEqual(packageSkills.map(s => s.name).sort(), [
-      "domain-modeling", "grill-with-docs", "grilling", "improve", "roundtable", "simple",
-      "unseen-question",
+      "grill-with-docs", "improve", "roundtable", "unseen-question",
     ]);
     ({ session } = await createAgentSession({
       cwd, agentDir, settingsManager, resourceLoader, sessionManager: SessionManager.inMemory(cwd),
