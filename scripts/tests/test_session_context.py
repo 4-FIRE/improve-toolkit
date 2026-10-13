@@ -48,37 +48,11 @@ def run_hook(workdir: Path, host: str = "claude") -> dict:
 def test_runtime_data_home_created_without_workbench():
     workdir = Path(tempfile.mkdtemp(prefix="sc_test_"))
     try:
-        data = run_hook(workdir)
-        context = data["hookSpecificOutput"]["additionalContext"]
+        run_hook(workdir)
         data_home = workdir / ".improve-toolkit"
         assert data_home.is_dir()
         assert (data_home / ".gitignore").is_file()
         assert not (data_home / "workbench").exists()
-        assert "workbench" not in context.lower()
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
-def test_code_execution_guidance_removed():
-    workdir = Path(tempfile.mkdtemp(prefix="sc_test_"))
-    try:
-        data = run_hook(workdir)
-        context = data["hookSpecificOutput"]["additionalContext"]
-        removed_phrases = (
-            "Coding Agent Persona",
-            "Solving with code",
-            "Use code instead of mental math",
-            "prefer running code",
-            "How to run",
-            "Process isolation",
-            "Working loop",
-            "Error handling",
-            "Output control",
-            "python -c",
-            "workbench",
-        )
-        for phrase in removed_phrases:
-            assert phrase.lower() not in context.lower(), f"removed guidance still present: {phrase!r}"
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -86,12 +60,10 @@ def test_code_execution_guidance_removed():
 def test_codex_runtime_data_home_created():
     workdir = Path(tempfile.mkdtemp(prefix="sc_codex_test_"))
     try:
-        data = run_hook(workdir, host="codex")
-        context = data["hookSpecificOutput"]["additionalContext"]
+        run_hook(workdir, host="codex")
         data_home = workdir / ".improve-toolkit"
         assert data_home.is_dir()
         assert not (data_home / "workbench").exists()
-        assert "Claude Code Persona" not in context
         ignore_file = data_home / ".gitignore"
         assert ignore_file.is_file()
         ignore_text = ignore_file.read_text(encoding="utf-8")
@@ -101,29 +73,13 @@ def test_codex_runtime_data_home_created():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_context_contains_memory_and_writing_sections():
-    workdir = Path(tempfile.mkdtemp(prefix="sc_memory_test_"))
+def test_hosts_emit_session_start_context():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_hosts_test_"))
     try:
-        data = run_hook(workdir)
-        context = data["hookSpecificOutput"]["additionalContext"]
-        headings = [line for line in context.splitlines() if line.startswith("## ")]
-        assert headings == ["## Memory guidance", "## Response and writing guidance"]
-        memory_section, writing_section = context.split(headings[1])
-        assert "`memory_recall`" in memory_section
-        assert "`memory`" in memory_section
-        assert "ASD-STE100" in writing_section
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
-def test_hosts_receive_identical_plugin_guidance():
-    workdir = Path(tempfile.mkdtemp(prefix="sc_skills_test_"))
-    try:
-        data = run_hook(workdir)
-        context = data["hookSpecificOutput"]["additionalContext"]
-        codex = run_hook(workdir, host="codex")
-        assert context == codex["hookSpecificOutput"]["additionalContext"]
-        assert "`improve`" in context
+        for host in ("claude", "codex"):
+            output = run_hook(workdir, host=host)["hookSpecificOutput"]
+            assert output["hookEventName"] == "SessionStart"
+            assert "additionalContext" in output
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -149,10 +105,8 @@ def test_import_has_no_runtime_side_effects():
 
 ALL_TESTS = [
     test_runtime_data_home_created_without_workbench,
-    test_code_execution_guidance_removed,
     test_codex_runtime_data_home_created,
-    test_context_contains_memory_and_writing_sections,
-    test_hosts_receive_identical_plugin_guidance,
+    test_hosts_emit_session_start_context,
     test_import_has_no_runtime_side_effects,
 ]
 

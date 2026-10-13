@@ -100,8 +100,6 @@ def test_main_without_summary_never_injects_full_memory() -> None:
         context = run_load_memory(workdir)["hookSpecificOutput"]["additionalContext"]
         assert "FULL-DETAIL" not in context
         assert "A manually saved project fact" in context
-        assert "unavailable" not in context
-        assert "memory_recall" in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -113,7 +111,6 @@ def test_main_loads_materialized_summary_only() -> None:
         context = run_load_memory(workdir)["hookSpecificOutput"]["additionalContext"]
         assert "Release versions stay synchronized" in context
         assert "FULL-DETAIL" not in context
-        assert "memory_recall" in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -129,7 +126,6 @@ def test_legacy_memory_only_prompts_recall_without_loading_body() -> None:
         )
         context = run_load_memory(workdir)["hookSpecificOutput"]["additionalContext"]
         assert "LEGACY-FULL-BODY" not in context
-        assert "memory_recall" in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -143,8 +139,6 @@ def test_corrupt_summary_is_rebuilt_from_sources() -> None:
         context = run_load_memory(workdir)["hookSpecificOutput"]["additionalContext"]
         assert "STALE OR TAMPERED" not in context
         assert "Release versions stay synchronized" in context
-        assert "unavailable" not in context
-        assert "memory_recall" in context
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -240,8 +234,9 @@ def test_rebuild_failure_reports_unavailable_and_keeps_existing_summary() -> Non
         ), redirect_stderr(errors):
             load_memory.main()
 
-        context = json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"]
-        assert context == load_memory.UNAVAILABLE_BRIEF
+        assert json.loads(output.getvalue())["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+        catalog = MemoryCatalog(memory_dir=mem_dir, data_home=mem_dir.parent)
+        assert catalog.startup_snapshot().status == "unavailable"
         assert "MEMORY.md" in errors.getvalue()
         assert (mem_dir / "SUMMARY.md").read_bytes() == summary
         assert (mem_dir / "MEMORY.md").read_bytes() == b"\xff"

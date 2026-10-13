@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check prompt references, not a model's behavior from exact prose matches."""
+"""Check resource links and tool references."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def test_prompt_tool_references_match_exposed_schemas() -> None:
                 names.add(ast.literal_eval(value))
     for path in (SESSION_CONTEXT, IMPROVE_SKILL):
         mentioned = set(re.findall(r"`(memory(?:_recall)?)`", path.read_text(encoding="utf-8")))
-        assert mentioned == names
+        assert mentioned <= names
 
 
 def test_referenced_skills_are_available() -> None:

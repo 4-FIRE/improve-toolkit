@@ -47,7 +47,6 @@ def test_startup_snapshot_contains_only_bounded_summary() -> None:
         assert len(snapshot.text) <= 240
         assert "Release versions stay synchronized" in snapshot.text
         assert "PRIVATE-DETAIL" not in snapshot.text
-        assert "memory_recall" in snapshot.text
 
 
 def test_recall_returns_only_bounded_relevant_entries() -> None:

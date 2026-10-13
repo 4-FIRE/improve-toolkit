@@ -38,7 +38,7 @@ npm test
 Choose checks for the changed surface: the first command covers shared scripts
 and hooks; `test_tools.py` covers MCP memory behavior and creates `servers/.venv`
 when needed; the protocol test covers launcher, tool discovery and stdio calls;
-the final command checks Codex plugin metadata. Skill prose changes need format
+the final command checks Codex plugin metadata. Skill prose changes need resource
 and reference checks, plus a representative trial when behavior changes matter.
 
 Run one unit file directly while iterating, for example
@@ -57,8 +57,14 @@ counterparts together. Preserve each JSON file's existing formatting.
 
 Tests use plain functions named `test_*` with built-in `assert`; no pytest
 runner is required. Add behavioral coverage beside related script tests and MCP
-integration cases to `servers/test_tools.py`; prose-only edits do not need tests
-that assert exact wording. Use temporary directories and patched environments
+integration cases to `servers/test_tools.py`.
+
+Do not test the wording, headings, section order, or layout of prompts, documents, or skills.
+Remove existing checks of this kind; do not update them to match new prose.
+Test behavior, protocol fields, resource references, and file operations instead.
+Assertions on memory fixture data may check transfer, filtering, or storage behavior.
+
+Use temporary directories and patched environments
 so tests never mutate real project memory. Run relevant checks and fix failures
 caused by the change within the existing task authorization. Once checks pass,
 repeat or broaden them only for new changes, failures or unresolved concerns.
