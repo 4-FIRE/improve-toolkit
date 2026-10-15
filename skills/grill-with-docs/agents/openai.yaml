@@ -1,5 +1,5 @@
 interface:
-  display_name: 追问并留档
+  display_name: grill-with-docs
   short_description: 反复追问把方案打磨清楚，维护术语表，只记录少量必要的决策说明。
 policy:
   allow_implicit_invocation: false

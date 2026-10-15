@@ -1,5 +1,5 @@
 interface:
-  display_name: 尚未看清的问题
-  short_description: 从反复讨论中，发现用户可能尚未意识到的关键问题，或尚未明确表达的目标。
+  display_name: unseen-question
+  short_description: 从讨论中，发现用户可能尚未意识到的关键问题，或尚未明确表达的目标。
 policy:
   allow_implicit_invocation: false
