@@ -7,6 +7,8 @@ import asyncio
 import json
 import os
 import tempfile
+import subprocess
+import venv
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
@@ -153,7 +155,45 @@ async def run_test(host: str) -> None:
 
 
 
+async def test_foreign_virtualenv() -> None:
+    with tempfile.TemporaryDirectory(prefix="improve-foreign-venv-") as temp_dir:
+        root = Path(temp_dir)
+        foreign = root / "foreign"
+        venv.EnvBuilder(with_pip=False).create(foreign)
+        python = foreign / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        probe = subprocess.run(
+            [str(python), "-c", "import importlib.util; assert importlib.util.find_spec('mcp') is None"],
+            capture_output=True,
+        )
+        assert probe.returncode == 0, probe.stderr
+        env = {
+            **os.environ,
+            "VIRTUAL_ENV": str(foreign),
+            "PATH": str(python.parent) + os.pathsep + os.environ.get("PATH", ""),
+            "PYTHONNOUSERSITE": "1",
+            "IMPROVE_HOST": "pi",
+            "IMPROVE_PROJECT_DIR": str(root),
+        }
+        # Direct Python launch matches the pi adapter, without a shell launcher.
+        server = StdioServerParameters(
+            command=str(python), args=[str(REPO_ROOT / "servers/server.py")],
+            cwd=str(root), env=env,
+        )
+        async with stdio_client(server) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                assert {tool.name for tool in tools.tools} == {"memory", "memory_recall"}
+        # Bootstrapping must not install dependencies into the foreign venv.
+        result = subprocess.run(
+            [str(python), "-c", "import importlib.util; assert importlib.util.find_spec('mcp') is None"],
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+
 if __name__ == "__main__":
+    asyncio.run(asyncio.wait_for(test_foreign_virtualenv(), timeout=120))
     for host in ("codex", "claude"):
         asyncio.run(asyncio.wait_for(run_test(host), timeout=60))
     print("MCP protocol smoke test passed")

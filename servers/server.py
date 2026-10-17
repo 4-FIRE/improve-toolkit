@@ -50,11 +50,13 @@ def re_exec_into_venv(venv_python):
         os.execv(str(venv_python), argv)
 
 
-# Resolve/install only from a base interpreter. After re-exec, sys.prefix is
-# the selected shared (or local fallback) virtualenv and bootstrap is a no-op.
-if sys.prefix == sys.base_prefix:
+# An inherited virtualenv may belong to another extension and lack our pins.
+# Always resolve our runtime; compare prefixes, not executable symlinks, since
+# distinct virtualenvs can point to the same base Python binary.
+if __name__ == "__main__":
     _venv_python = ensure_runtime_venv(REQUIREMENTS_LOCK, LOCAL_VENV_FALLBACK)
-    re_exec_into_venv(_venv_python)
+    if Path(sys.prefix).resolve() != _venv_python.parent.parent.resolve():
+        re_exec_into_venv(_venv_python)
 
 import asyncio
 import json
