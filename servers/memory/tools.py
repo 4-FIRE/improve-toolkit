@@ -238,7 +238,7 @@ MEMORY_SCHEMA = {
     "name": "memory",
     "description": (
         "Add, replace or remove durable facts shared across hosts in this project. "
-        "Use `improve` for fact selection, privacy limits and skill workflows. "
+        "Use `improve` for fact selection and privacy limits. "
         "Recall related entries before a write. "
         "Use their entry_id and expected_revision for replacement or removal.\n\n"
         "ENTRY: Write one self-contained fact in plain text. "

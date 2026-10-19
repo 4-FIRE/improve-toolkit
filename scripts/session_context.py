@@ -13,7 +13,7 @@ MEMORY_GUIDANCE = """## Recall and update memory
 
 - Recall memory when past facts or preferences may help.
 - Treat startup summaries as cues. Read relevant entries and check current sources.
-- Load the `improve` skill for explicit memory requests, important corrections, durable facts or preferences, and skill changes.
+- Load the `improve` skill for memory maintenance: explicit memory requests, important corrections, durable facts or preferences, or review of existing memory.
 """
 
 
