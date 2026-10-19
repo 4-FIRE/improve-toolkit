@@ -52,7 +52,7 @@ def _enter_test_venv() -> None:
     try:
         import mcp  # noqa: F401
 
-        dependencies_ready = importlib.metadata.version("mcp") == "1.28.1"
+        dependencies_ready = importlib.metadata.version("mcp") == "1.30.0"
     except (ImportError, importlib.metadata.PackageNotFoundError):
         dependencies_ready = False
 

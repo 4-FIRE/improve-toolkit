@@ -161,7 +161,7 @@ def test_key_depends_on_python_and_requirements_not_plugin_version():
         assert first_sha == second_sha
 
         same_requirements.write_text(
-            "mcp==1.28.2\n",
+            "mcp==1.30.0\n",
             encoding="utf-8",
         )
         changed_requirements, _ = build_cache_key(
@@ -260,7 +260,7 @@ def test_lock_file_matches_pyproject_pins():
     pyproject_text = (repository_root / "servers/pyproject.toml").read_text(
         encoding="utf-8"
     )
-    for requirement in ("mcp==1.28.1",):
+    for requirement in ("mcp==1.30.0",):
         assert requirement in lock_text
         assert requirement.lower() in pyproject_text.lower()
 
