@@ -1,0 +1,5 @@
+interface:
+  display_name: answer-me
+  short_description: 分析并回答需要解释、比较或判断的问题。
+policy:
+  allow_implicit_invocation: false

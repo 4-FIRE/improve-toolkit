@@ -1,0 +1,5 @@
+interface:
+  display_name: clarify-request
+  short_description: 把疑问、需求或任务改写成清楚、具体、可独立理解的表述。
+policy:
+  allow_implicit_invocation: false
