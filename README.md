@@ -9,7 +9,9 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
 - **分层记忆**：MCP 服务 `improve` 暴露写入工具 `memory` 和按需检索工具
   `memory_recall`。正文分别保存在 `MEMORY.md` 与 `USER.md`。启动时优先读取
   `SUMMARY.md`；摘要失效时读取正文并重建。会话只接收有字符上限的摘要。
-- **会话上下文**：`session_context.py` 注入记忆用途、按需整理条件及适用于所有输出的写作原则，
+- **会话上下文**：`session_context.py` 默认只注入项目内记忆的用途和按需整理条件。
+  用户当前请求优先于本插件的整理流程；不满足整理条件时直接完成任务，不附记忆报告。
+  判断与写作指导仅在 `IMPROVE_GLOBAL_GUIDANCE=1` 时追加，且不使用强调标签。
   `load_memory.py` 注入有字符上限的摘要。代理在任务与摘要相关、历史决策可能有用，
   或修改旧记忆前调用 `memory_recall`，只取有限条相关正文。
 - **可并发修改与有限安全检查**：记忆更新使用稳定 `entry_id`、乐观并发版本
@@ -30,8 +32,8 @@ stdio MCP 服务持久化项目知识，在 `SessionStart` 时只注入有界摘
 修改直接完成并做相关验证；会话沉淀中发现的可复用方法先准备具体建议。讨论默认逐轮
 互动，用户要求连续多轮或一次完成时按其要求推进。
 
-全局写作指导参考 [ASD-STE100 Issue 9](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf)，
-适用于回复、文档、记忆和技能。默认使用常用词、统一名称、明确动作和短句，并保留
+判断与写作指导默认关闭。设置 `IMPROVE_GLOBAL_GUIDANCE=1` 后，写作部分参考 [ASD-STE100 Issue 9](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf)，
+适用于回复、文档、记忆和技能。开启后使用常用词、统一名称、明确动作和短句，并保留
 适用条件、否定、例外及必要原因。按语义分句，不设固定词数；准确表达优先于机械缩短。这是适合日常技术交流的简化指导，不代表完整 STE 合规。
 任务要求严格遵循 STE 时，应查阅官方规则与词典，核对批准词义和计词方式。
 
@@ -115,7 +117,7 @@ pi 扩展以参数数组直接启动 Python，兼容包含空格的路径；Wind
 ```text
 hooks/hooks.json
   └─ scripts/run_hook
-       ├─ session_context.py  → 记忆用途、按需整理条件与通用写作原则
+       ├─ session_context.py  → 记忆用途与按需整理条件（写作指导需显式开启）
        └─ load_memory.py      → 有界摘要（有效时直接读取，失效时自动重建）
 
 .mcp.json / .claude-plugin/plugin.json
@@ -216,8 +218,9 @@ ID 重复、设置标记损坏或版本不支持时，返回 `INVALID_FORMAT` �
 手工修改正文时，需要同时维护 `updated_at`；程序不能从文件修改时间确定某个条目的更新时间。
 
 `startup` 默认是 `true`。`false` 表示不进入启动摘要，但仍可检索。替换时省略该
-参数会保留原设置。启动摘要先列用户记忆，再列项目记忆，各自按文件顺序排列；
-达到字符上限时省略后续条目。手工调整顺序可以改变展示先后。条目摘要由正文首个
+参数会保留原设置。启动摘要按 `updated_at` 从新到旧排列；没有该时间的条目排在后面，
+同一时间仍保持文件中的相对顺序（用户文件在前）。达到字符上限时省略较旧条目，
+并在省略行写出若干条目 ID，便于用 `memory_recall` 继续查看。条目摘要由正文首个
 非空行提取，最多 120 字符。检索仍按正文关键词匹配程度排序。
 
 `SUMMARY.md` 是自动生成的文件，手工修改会被重建覆盖。`METADATA.jsonl` 不再是
@@ -264,7 +267,8 @@ stderr 报告，原元数据文件会保留供人工处理。迁移中断后可�
   生效（首次运行自动生成，默认 `false`），显式设置该环境变量时优先级更高
 - `IMPROVE_MEMORY_CHAR_LIMIT`：项目记忆正文总上限，默认 24000
 - `IMPROVE_USER_CHAR_LIMIT`：用户记忆正文总上限，默认 8000
-- `IMPROVE_STARTUP_SUMMARY_LIMIT`：启动摘要字符上限，默认 800
+- `IMPROVE_GLOBAL_GUIDANCE=1`：SessionStart 额外注入判断与写作指导（默认关闭）
+- `IMPROVE_STARTUP_SUMMARY_LIMIT`：启动摘要字符上限，默认 800。限额按字符计，同样篇幅的中文大约是英文的两倍 token
 - `IMPROVE_RECALL_CHAR_LIMIT`：单次召回完整成功 JSON 的默认字符上限，默认 2400；
   正整数会限制在 512—12000 内（例如旧配置 384 实际使用 512）。非正整数或无效文本
   返回指明该变量的配置错误。调用者显式传入的 max_chars 不做范围归一化，越界即报错。

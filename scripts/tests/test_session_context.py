@@ -27,6 +27,7 @@ def run_hook(workdir: Path, host: str = "claude") -> dict:
         "IMPROVE_PROJECT_DIR",
         "IMPROVE_DATA_DIR",
         "IMPROVE_MEMORY_DIR",
+        "IMPROVE_GLOBAL_GUIDANCE",
     ):
         env.pop(key, None)
     if host == "codex":
@@ -73,6 +74,36 @@ def test_codex_runtime_data_home_created():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def test_default_context_stays_bounded_until_guidance_is_enabled():
+    workdir = Path(tempfile.mkdtemp(prefix="sc_guidance_test_"))
+    try:
+        default = run_hook(workdir)["hookSpecificOutput"]["additionalContext"]
+        assert len(default) <= 800
+        env = dict(os.environ)
+        for key in (
+            "PLUGIN_ROOT",
+            "IMPROVE_HOST",
+            "IMPROVE_PROJECT_DIR",
+            "IMPROVE_DATA_DIR",
+            "IMPROVE_MEMORY_DIR",
+        ):
+            env.pop(key, None)
+        env["CLAUDE_PROJECT_DIR"] = str(workdir)
+        env["IMPROVE_GLOBAL_GUIDANCE"] = "1"
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT)],
+            cwd=workdir,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        guided = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        assert len(guided) > len(default)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def test_hosts_emit_session_start_context():
     workdir = Path(tempfile.mkdtemp(prefix="sc_hosts_test_"))
     try:
@@ -106,6 +137,7 @@ def test_import_has_no_runtime_side_effects():
 ALL_TESTS = [
     test_runtime_data_home_created_without_workbench,
     test_codex_runtime_data_home_created,
+    test_default_context_stays_bounded_until_guidance_is_enabled,
     test_hosts_emit_session_start_context,
     test_import_has_no_runtime_side_effects,
 ]

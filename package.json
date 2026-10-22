@@ -4,6 +4,9 @@
   "description": "Shared project memory and skills for pi, Codex, and Claude Code",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
   "repository": "https://github.com/4-FIRE/improve-toolkit",
   "keywords": ["pi-package", "memory", "skills"],
   "files": [

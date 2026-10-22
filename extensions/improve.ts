@@ -12,7 +12,7 @@ import type { TSchema } from "typebox";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const exec = promisify(execFile);
-const unavailable = "Improve Toolkit memory is unavailable. Do not assume there are no saved memories. Fix the reported startup error and run /reload.";
+const unavailable = "Improve Toolkit memory is unavailable. Do not assume there are no saved memories. Tell the user the startup error; they can fix it and run /reload.";
 
 function environment(cwd: string): Record<string, string> {
   return {
