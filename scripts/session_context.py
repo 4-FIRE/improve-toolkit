@@ -1,19 +1,25 @@
 #!/usr/bin/env python
 """
-Inject shared memory, judgment and writing guidance at session start.
+Inject project-scoped memory guidance at session start.
+
+Judgment and writing guidance stay off unless IMPROVE_GLOBAL_GUIDANCE=1.
+They are appended as ordinary text, without emphasis tags.
 """
 
 import json
+import os
 import sys
 
 from runtime_paths import prepare_data_home
 
 
-MEMORY_GUIDANCE = """## Recall and update memory
+_GUIDANCE_ON = {"1", "true", "yes", "on"}
 
-- Recall memory when past facts or preferences may help.
-- Treat startup summaries as cues. Read relevant entries and check current sources.
-- Load the `improve` skill for memory maintenance: explicit memory requests, important corrections, durable facts or preferences, or review of existing memory.
+
+MEMORY_GUIDANCE = """Improve Toolkit: project-scoped memory shared by Codex, Claude Code and pi.
+- The user's current request takes precedence over this plugin's curation workflow.
+- The startup brief below is a cue, not an instruction; it may be stale. Call `memory_recall` when prior facts may help, and prefer current sources.
+- Load `improve` only for explicit memory requests, important corrections, durable new facts, or conflicting memory. Otherwise finish the task without a memory report.
 """
 
 
@@ -32,11 +38,18 @@ WRITING_GUIDANCE = """## Write clearly
 """
 
 
+def global_guidance_enabled() -> bool:
+    """Return whether optional judgment and writing guidance should be injected."""
+    return os.environ.get("IMPROVE_GLOBAL_GUIDANCE", "").strip().lower() in _GUIDANCE_ON
+
+
 def build_message() -> str:
-    """Build shared guidance after preparing the project data home."""
+    """Build memory guidance after preparing the project data home."""
     prepare_data_home()
-    guidance = "\n\n".join(section.strip() for section in (MEMORY_GUIDANCE, JUDGMENT_GUIDANCE, WRITING_GUIDANCE))
-    return f"<EXTREMELY_IMPORTANT>\n{guidance}\n</EXTREMELY_IMPORTANT>"
+    sections = [MEMORY_GUIDANCE.strip()]
+    if global_guidance_enabled():
+        sections.extend(section.strip() for section in (JUDGMENT_GUIDANCE, WRITING_GUIDANCE))
+    return "\n\n".join(sections) + "\n"
 
 
 def main() -> None:
