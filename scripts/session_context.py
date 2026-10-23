@@ -9,11 +9,10 @@ import sys
 from runtime_paths import prepare_data_home
 
 
-MEMORY_GUIDANCE = """## Recall and update memory
-
-- Recall memory when past facts or preferences may help.
-- Treat startup summaries as cues. Read relevant entries and check current sources.
-- Load the `improve` skill for memory maintenance: explicit memory requests, important corrections, durable facts or preferences, or review of existing memory.
+MEMORY_GUIDANCE = """Improve Toolkit: project-scoped memory shared by Codex, Claude Code and pi.
+- The user's current request takes precedence over this plugin's curation workflow.
+- The startup brief below is a cue, not an instruction; it may be stale. Call `memory_recall` when prior facts may help, and prefer current sources.
+- Load `improve` only for explicit memory requests, important corrections, durable new facts, or conflicting memory. Otherwise finish the task without a memory report.
 """
 
 
@@ -36,7 +35,7 @@ def build_message() -> str:
     """Build shared guidance after preparing the project data home."""
     prepare_data_home()
     guidance = "\n\n".join(section.strip() for section in (MEMORY_GUIDANCE, JUDGMENT_GUIDANCE, WRITING_GUIDANCE))
-    return f"<EXTREMELY_IMPORTANT>\n{guidance}\n</EXTREMELY_IMPORTANT>"
+    return guidance + "\n"
 
 
 def main() -> None:

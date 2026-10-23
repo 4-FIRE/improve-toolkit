@@ -247,7 +247,8 @@ MEMORY_SCHEMA = {
         "Include the conditions needed to apply the fact. "
         "Put the main point on the first line; the tool derives the summary from it. "
         "When traceability is needed, include a verifiable, non-sensitive source location. "
-        "Use startup=false for recall-only entries.\n\n"
+        "The default startup summary budget is 800 characters. "
+        "Use startup=false for recall-only details that would not change judgment in most sessions.\n\n"
         "RESULT: entry contains the saved content, fixed ID and startup setting at the returned revision. "
         "After removal, entry is null. "
         "A complete matching return is sufficient to check an ordinary write. "
@@ -268,9 +269,9 @@ MEMORY_SCHEMA = {
                 "type": "string",
                 "enum": ["memory", "user"],
                 "description": (
-                    "Which store to curate: 'user' for project-scoped user facts and "
-                    "preferences; 'memory' for project or environment facts useful "
-                    "across maintainers."
+                    "Which store to curate. Both stores are project-scoped by default. "
+                    "'user' is for facts and preferences about the user in this project, not a global profile. "
+                    "'memory' is for project or environment facts useful across maintainers."
                 )
             },
             "content": {

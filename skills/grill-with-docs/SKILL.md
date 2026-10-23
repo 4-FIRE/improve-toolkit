@@ -26,7 +26,7 @@ Format a round like so:
 ➡️ <your recommended answer>
 ```
 
-Word each question so "yes" accepts your recommended answer.
+For yes/no questions, word them so "yes" accepts the recommendation. For multiple-choice questions, mark the recommended option.
 
 Each round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
 
@@ -45,7 +45,7 @@ Clarify project terms, test their boundaries with concrete scenarios, and record
 If a root `CONTEXT-MAP.md` exists, read it to locate the relevant context's `CONTEXT.md`.
 Otherwise, use the root `CONTEXT.md`. Create it only when the first term is resolved.
 
-Store necessary decision explanations in `docs/adr/`, using the location rules in the ADR template below.
+Store necessary decision explanations in `docs/adr/`. Location rules are in [ADR-FORMAT.md](./ADR-FORMAT.md); read it only when a record is needed.
 Create the directory only when a record is needed.
 
 ### During the session
